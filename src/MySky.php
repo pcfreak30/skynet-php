@@ -217,9 +217,9 @@ class MySky {
 	 * @return string
 	 */
 	public function getUserId(): string {
-		[ 'privateKey' => $privateKey ] = genKeyPairFromSeed( $this->key->getSeed() );
+		[ 'publicKey' => $publicKey ] = genKeyPairFromSeed( $this->key->getSeed() );
 
-		return $privateKey;
+		return $publicKey;
 	}
 
 	/**
