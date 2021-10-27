@@ -135,7 +135,7 @@ class MySky {
 				throw new \Exception( $error );
 			}
 
-			$key = genKeyPairFromSeed( $seed );
+			$key = KeyPairAndSeed::fromSeed( $seed );
 		}
 
 		if ( null === $key ) {
@@ -308,7 +308,7 @@ class MySky {
 	 * @return void
 	 * @throws \Requests_Exception
 	 */
-	public function setDataLink( string $path, string $dataLink, ?CustomSetJSONOptions $options = null ):void {
+	public function setDataLink( string $path, string $dataLink, ?CustomSetJSONOptions $options = null ): void {
 		$options = $this->buildSetJSONOptions( $options );
 
 		$publicKey = $this->getUserId();
