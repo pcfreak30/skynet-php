@@ -27,3 +27,6 @@ jobs:
 
       - name: Run test cases
         run:  php vendor/bin/codecept run
+        env:
+          PORTAL_LOGIN_EMAIL: ${{ secrets.PORTAL_LOGIN_EMAIL }}
+          PORTAL_LOGIN_PASSWORD: ${{ secrets.PORTAL_LOGIN_PASSWORD }}
