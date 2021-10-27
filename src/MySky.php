@@ -259,11 +259,8 @@ class MySky {
 
 		$options->setHashedDataKeyHex( true );
 
-		[
-			'entry'    => $entry,
-			'dataLink' => $dataLink,
-		] = $this->db->getOrCreateRegistryEntry( $publicKey, $dataKey, $json, $options );
-		$signature = $this->signRegistryEntry( $entry, $path );
+		[ $entry, $dataLink ] = $this->db->getOrCreateRegistryEntry( $publicKey, $dataKey, $json, $options );
+		$signature =  $this->signRegistryEntry($entry, $path);
 
 		$setEntryOptions = extractOptions( $options, Registry::DEFAULT_SET_ENTRY_OPTIONS );
 		$this->getRegistry()->postSignedEntry( $publicKey, $entry, $signature, makeSetEntryOptions( $setEntryOptions ) );
