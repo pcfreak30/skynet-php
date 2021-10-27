@@ -1,0 +1,60 @@
+{
+  "name": "pcfreak30/skynet-php",
+  "description": "Skynet SDK for PHP",
+  "license": "MIT",
+  "authors": [
+    {
+      "name": "Derrick Hammer",
+      "email": "derrick@derrickhammer.com"
+    }
+  ],
+  "require": {
+    "paragonie/sodium_compat": "^1.17",
+    "rmccue/requests": "^1.8",
+    "jakeasmith/http_build_url": "^1",
+    "simplito/bn-php": "^1.1",
+    "ext-json": "*",
+    "ext-curl": "*",
+    "ankitpokhrel/tus-php": "^1.2",
+    "ext-dom": "*"
+  },
+  "autoload": {
+    "psr-4": {
+      "Skynet\\": "src/"
+    },
+    "files": [
+      "src/constants.php",
+      "src/functions/crypto.php",
+      "src/functions/encoding.php",
+      "src/functions/encrypted_files.php",
+      "src/functions/file.php",
+      "src/functions/formatting.php",
+      "src/functions/mysky.php",
+      "src/functions/options.php",
+      "src/functions/registry.php",
+      "src/functions/sia.php",
+      "src/functions/skydb.php",
+      "src/functions/skylinks.php",
+      "src/functions/strings.php",
+      "src/functions/tweak.php",
+      "src/functions/upload.php",
+      "src/functions/url.php",
+      "src/functions/validation.php"
+    ]
+  },
+  "require-dev": {
+    "mockery/mockery": "^1.4",
+    "codeception/codeception": "^4.1",
+    "codeception/module-phpbrowser": "^1.0.0",
+    "codeception/module-asserts": "^1.0.0",
+    "codeception/verify": "^2.1",
+    "codeception/mockery-module": "^0.4.0",
+    "monolog/monolog": "^2.3",
+    "ext-intl": "*"
+  },
+  "archive": {
+    "exclude": [
+      "methodify.php"
+    ]
+  }
+}
