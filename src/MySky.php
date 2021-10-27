@@ -449,7 +449,14 @@ class MySky {
 	 * @return \Skynet\Types\EncryptedJSONResponse
 	 * @throws \Requests_Exception
 	 */
-	public function setJSONEncrypted( string $path, \stdClass $json, CustomSetJSONOptions $options = null ): EncryptedJSONResponse {
+	public function setJSONEncrypted( string $path, $json, CustomSetJSONOptions $options = null ): EncryptedJSONResponse {
+		if ( ! is_array( $json ) && ! ( $json instanceof \stdClass ) ) {
+			throwValidationError( 'json', $json, 'parameter', 'object or array' );
+		}
+
+		$json = arrayToObject( $json );
+
+
 		$options = $this->buildSetJSONOptions( $options );
 
 		$publicKey = $this->getUserId();
