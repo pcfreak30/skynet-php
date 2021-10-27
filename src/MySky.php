@@ -279,16 +279,6 @@ class MySky {
 	}
 
 	/**
-	 * @param        $entry
-	 * @param string $path
-	 *
-	 * @return \Skynet\Uint8Array
-	 */
-	private function signRegistryEntry( $entry, string $path ): Uint8Array {
-		return signEntry( $this->key->getPrivateKey(), $entry, true );
-	}
-
-	/**
 	 * @return \Skynet\Registry
 	 */
 	public function getRegistry(): Registry {
@@ -495,7 +485,7 @@ class MySky {
 			throw new \Exception( 'Path does not match the data key in the encrypted registry entry.' );
 		}
 
-		return $this->signRegistryEntryHelper( $entry, $path );
+		return $this->signRegistryEntry( $entry, $path );
 	}
 
 	/**
@@ -504,7 +494,7 @@ class MySky {
 	 *
 	 * @return \Skynet\Uint8Array
 	 */
-	private function signRegistryEntryHelper( RegistryEntry $entry, string $path ): Uint8Array {
+	private function signRegistryEntry( RegistryEntry $entry, string $path ): Uint8Array {
 		[ 'privateKey' => $privateKey ] = genKeyPairFromSeed( $this->key->getSeed() );
 
 		return signEntry( $privateKey, $entry, true );
