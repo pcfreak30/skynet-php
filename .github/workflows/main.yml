@@ -29,6 +29,7 @@ jobs:
         uses: nick-invision/retry@v2
         with:
           max_attempts: 3
+          timeout_minutes: 5
           retry_on: error
           command: php vendor/bin/codecept run
         env:
