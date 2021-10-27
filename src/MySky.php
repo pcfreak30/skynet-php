@@ -308,7 +308,7 @@ class MySky {
 	 * @return void
 	 * @throws \Requests_Exception
 	 */
-	public function setDataLink( string $path, string $dataLink, ?CustomSetJSONOptions $options = null ) {
+	public function setDataLink( string $path, string $dataLink, ?CustomSetJSONOptions $options = null ):void {
 		$options = $this->buildSetJSONOptions( $options );
 
 		$publicKey = $this->getUserId();
