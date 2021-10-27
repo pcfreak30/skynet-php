@@ -1,6 +1,6 @@
 name: Run CI
 
-on: [push]
+on: [ push ]
 
 jobs:
   build:
@@ -26,7 +26,11 @@ jobs:
         run: "composer update --no-interaction --no-progress"
 
       - name: Run test cases
-        run:  php vendor/bin/codecept run
+        uses: nick-invision/retry@v2
+        with:
+          max_attempts: 3
+          retry_on: error
+          command: php vendor/bin/codecept run
         env:
           PORTAL_LOGIN_EMAIL: ${{ secrets.PORTAL_LOGIN_EMAIL }}
           PORTAL_LOGIN_PASSWORD: ${{ secrets.PORTAL_LOGIN_PASSWORD }}
