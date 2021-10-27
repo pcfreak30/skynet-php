@@ -246,7 +246,7 @@ class MySky {
 	 * @return \Skynet\Types\JSONResponse
 	 * @throws \Requests_Exception
 	 */
-	public function setJSON( string $path,$json, ?string $userId = null, ?CustomSetJSONOptions $options = null ): JSONResponse {
+	public function setJSON( string $path, $json, ?CustomSetJSONOptions $options = null ): JSONResponse {
 		if ( ! is_array( $json ) && ! ( $json instanceof stdClass ) ) {
 			throwValidationError( 'json', $json, 'parameter', 'object or array' );
 		}
