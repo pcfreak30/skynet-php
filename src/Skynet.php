@@ -1039,7 +1039,7 @@ class Skynet {
 		if ( $this->verifyPortalSession() ) {
 			return;
 		}
-		$response = $this->httpClient->get( $this->portalAccountUrl . '/.ory/kratos/public/self-service/login/browser', [ 'allow_redirects' => false ] );
+		$response = $this->getHttpClient()->get( $this->portalAccountUrl . '/.ory/kratos/public/self-service/login/browser', [ 'allow_redirects' => false ] );
 
 		$cookies = new CookieJar(
 			false, [
@@ -1047,7 +1047,7 @@ class Skynet {
 			),
 		] );
 
-		$response = $this->httpClient->get( $response->getHeaderLine( 'Location' ), [
+		$response = $this->getHttpClient()->get( $response->getHeaderLine( 'Location' ), [
 			'cookies' => $cookies,
 		] );
 
@@ -1062,7 +1062,7 @@ class Skynet {
 		$csrf      = $xpath->query( "//input[@name='csrf_token']" )->item( 0 )->getAttribute( 'value' );
 		$submitUrl = $form->getAttribute( 'action' );
 
-		$response = $this->httpClient->post( $submitUrl, [
+		$response = $this->getHttpClient()->post( $submitUrl, [
 			'form_params' => [
 				'identifier' => $this->portalLoginEmail,
 				'password'   => $this->portalLoginPassword,
@@ -1089,7 +1089,7 @@ class Skynet {
 	 * @throws \GuzzleHttp\Exception\GuzzleException
 	 */
 	public function verifyPortalSession(): bool {
-		$response = $this->httpClient->get( $this->getPortalUrl() . '/__internal/do/not/use/authenticated', [
+		$response = $this->getHttpClient()->get( $this->getPortalUrl() . '/__internal/do/not/use/authenticated', [
 			'cookies' => CookieJar::fromArray( [
 				'skynet-jwt' => $this->sessionKey,
 			], parse_url( $this->getPortalUrl(), PHP_URL_HOST )
