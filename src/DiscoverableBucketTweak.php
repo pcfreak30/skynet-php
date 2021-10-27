@@ -1,5 +1,7 @@
 <?php
+
 namespace Skynet;
+
 use function Skynet\functions\crypto\hashAll;
 
 /**
@@ -20,6 +22,7 @@ class DiscoverableBucketTweak {
 	 */
 	public function __construct( string $path ) {
 		$paths         = explode( '/', $path );
+		$paths         = array_filter( $paths );
 		$pathHashes    = array_map( '\Skynet\functions\tweak\hashPathComponent', $paths );
 		$this->version = DISCOVERABLE_BUCKET_TWEAK_VERSION;
 		$this->path    = $pathHashes;
