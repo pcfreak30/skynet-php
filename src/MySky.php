@@ -254,7 +254,7 @@ class MySky {
 		$json = arrayToObject($json);
 		$options = $this->buildSetJSONOptions( $options );
 
-		$publicKey = $userId ?? $this->getUserId();
+		$publicKey = $this->getUserId();
 		$dataKey   = deriveDiscoverableFileTweak( $path );
 
 		$options->setHashedDataKeyHex( true );
