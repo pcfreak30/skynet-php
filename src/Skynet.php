@@ -149,7 +149,6 @@ class Skynet {
 	 * @var string
 	 */
 	private string $resolvedPortalUrl;
-
 	/**
 	 * @var \Skynet\Options\CustomClientOptions|null
 	 */
@@ -162,7 +161,6 @@ class Skynet {
 	 * @var string
 	 */
 	private string $portalAccountUrl = 'https://account.siasky.net';
-
 	/**
 	 * @var string
 	 */
@@ -191,6 +189,13 @@ class Skynet {
 
 		$this->initialPortalUrl = $initialPortalUrl;
 		$this->options          = $options;
+	}
+
+	/**
+	 * @param string $customPortalUrl
+	 */
+	public function setPortal( string $portalUrl ): void {
+		$this->customPortalUrl = $portalUrl;
 	}
 
 	/**

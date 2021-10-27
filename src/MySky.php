@@ -525,4 +525,8 @@ class MySky {
 	public function getSkyNet(): Skynet {
 		return $this->db->getSkynet();
 	}
+
+	public function setPortal( string $portalUrl ) {
+		$this->getSkyNet()->setPortal( $portalUrl );
+	}
 }
