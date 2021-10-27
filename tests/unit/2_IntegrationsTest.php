@@ -157,7 +157,7 @@ class IntegrationsTest extends Unit {
 
 		$entryLink = getEntryLink( $this->skydb_publicKey, $dataKey );
 		expect( $entryLink )->toEqual( $expectedEntryLink );
-		[ 'data' => $data ] = $this->client->getSkyNet()->getFileContent( $entryLink );
+		[ 'data' => $data ] = $this->client->getSkynet()->getFileContent( $entryLink );
 
 		$data = json_decode( $data );
 		expect( $data )->toEqual( $expectedData );
@@ -228,7 +228,7 @@ class IntegrationsTest extends Unit {
 		$entryLink = getEntryLink( $publicKey, $this->dataKey );
 
 		try {
-			$this->client->getSkyNet()->getFileContent( $entryLink );
+			$this->client->getSkynet()->getFileContent( $entryLink );
 			throw new Exception( 'getFileContent should not have succeeded' );
 		} catch ( ClientException $e ) {
 			expect( $e->getResponse()->getStatusCode() )->toEqual( 404 );
@@ -323,7 +323,7 @@ class IntegrationsTest extends Unit {
 		$entryLink        = 'AQDwh1jnoZas9LaLHC_D4-2yP9XYDdZzNtz62H4Dww1jDA';
 		$expectedDataLink = URI_SKYNET_PREFIX . 'XABvi7JtJbQSMAcDwnUnmp2FKDPjg8_tTTFP4BwMSxVdEg';
 
-		[ 'skylink' => $skylink ] = $this->client->getSkyNet()->getFileContent( $entryLink );
+		[ 'skylink' => $skylink ] = $this->client->getSkynet()->getFileContent( $entryLink );
 
 		expect( $skylink )->toEqual( $expectedDataLink );
 	}
@@ -333,7 +333,7 @@ class IntegrationsTest extends Unit {
 		$entryLink        = convertSkylinkToBase64( $entryLinkBase32 );
 		$expectedDataLink = URI_SKYNET_PREFIX . 'EAAFgq17B-MKsi0ARYKUMmf9vxbZlDpZkA6EaVBCG4YBAQ';
 
-		[ 'skylink' => $skylink ] = $this->client->getSkyNet()->getFileContent( $entryLink );
+		[ 'skylink' => $skylink ] = $this->client->getSkynet()->getFileContent( $entryLink );
 		expect( $skylink )->toEqual( $expectedDataLink );
 	}
 
@@ -355,11 +355,11 @@ class IntegrationsTest extends Unit {
 		$dirname = 'dirname';
 		$dirType = 'application/zip';
 
-		[ 'skylink' => $skylink ] = $this->client->getSkyNet()->uploadDirectory( $directory, $dirname );
+		[ 'skylink' => $skylink ] = $this->client->getSkynet()->uploadDirectory( $directory, $dirname );
 
 		expect( $skylink )->notToEqual( '' );
 
-		$resp = $this->client->getSkyNet()->getFileContent( $skylink );
+		$resp = $this->client->getSkynet()->getFileContent( $skylink );
 		[
 			'data'        => $data,
 			'contentType' => $contentType,
@@ -378,11 +378,11 @@ class IntegrationsTest extends Unit {
 		$customFilename = 'asdf!!';
 
 		$file = new File( [ 'fileName' => $this->dataKey, 'data' => Uint8Array::from( $this->upload_fileData ) ] );
-		[ 'skylink' => $skylink ] = $this->client->getSkyNet()->uploadFile( $file, makeUploadOptions( [ 'customFilename' => $customFilename ] ) );
+		[ 'skylink' => $skylink ] = $this->client->getSkynet()->uploadFile( $file, makeUploadOptions( [ 'customFilename' => $customFilename ] ) );
 
 		expect( $skylink )->notToEqual( '' );
 
-		[ 'metadata' => $metadata ] = $this->client->getSkyNet()->getMetadata( $skylink );
+		[ 'metadata' => $metadata ] = $this->client->getSkynet()->getMetadata( $skylink );
 
 		expect( $metadata->filename )->toEqual( $customFilename );
 	}
@@ -391,11 +391,11 @@ class IntegrationsTest extends Unit {
 		[ $filename1, $filename2 ] = [ randomUnicodeString( 16 ), randomUnicodeString( 16 ) ];
 		$data = 'file';
 
-		[ 'skylink' => $skylink1 ] = $this->client->getSkyNet()->uploadFile( new File( [
+		[ 'skylink' => $skylink1 ] = $this->client->getSkynet()->uploadFile( new File( [
 			'data'     => Uint8Array::from( $data ),
 			'fileName' => $filename1,
 		] ) );
-		[ 'skylink' => $skylink2 ] = $this->client->getSkyNet()->uploadFile( new File( [
+		[ 'skylink' => $skylink2 ] = $this->client->getSkynet()->uploadFile( new File( [
 			'data'     => Uint8Array::from( $data ),
 			'fileName' => $filename2,
 		] ) );
@@ -406,12 +406,12 @@ class IntegrationsTest extends Unit {
 	private function expectDifferentEtags( string $link1, string $link2 ): void {
 		expect( $link1 )->notToEqual( $link2 );
 
-		$url1 = $this->client->getSkyNet()->getSkylinkUrl( $link1 );
-		$url2 = $this->client->getSkyNet()->getSkylinkUrl( $link2 );
+		$url1 = $this->client->getSkynet()->getSkylinkUrl( $link1 );
+		$url2 = $this->client->getSkynet()->getSkylinkUrl( $link2 );
 
 
-		$response1 = $this->callPrivate( $this->client->getSkyNet(), 'getFileContentRequest', $link1 );
-		$response2 = $this->callPrivate( $this->client->getSkyNet(), 'getFileContentRequest', $link2 );
+		$response1 = $this->callPrivate( $this->client->getSkynet(), 'getFileContentRequest', $link1 );
+		$response2 = $this->callPrivate( $this->client->getSkynet(), 'getFileContentRequest', $link2 );
 
 		$etag1 = $response1->getHeaderLine( 'etag' );
 		$etag2 = $response2->getHeaderLine( 'etag' );
@@ -424,8 +424,8 @@ class IntegrationsTest extends Unit {
 		$url1 .= '?nocache=true';
 		$url2 .= '?nocache=true';
 
-		$response3 = $this->callPrivate( $this->client->getSkyNet(), 'getFileContentRequest', $url1 );
-		$response4 = $this->callPrivate( $this->client->getSkyNet(), 'getFileContentRequest', $url2 );
+		$response3 = $this->callPrivate( $this->client->getSkynet(), 'getFileContentRequest', $url1 );
+		$response4 = $this->callPrivate( $this->client->getSkynet(), 'getFileContentRequest', $url2 );
 
 		$etag3 = $response1->getHeaderLine( 'etag' );
 		$etag4 = $response2->getHeaderLine( 'etag' );
@@ -446,11 +446,11 @@ class IntegrationsTest extends Unit {
 		[ $data1, $data2 ] = [ randomUnicodeString( 16 ), randomUnicodeString( 16 ) ];
 		$filename = 'file';
 
-		[ 'skylink' => $skylink1 ] = $this->client->getSkyNet()->uploadFile( new File( [
+		[ 'skylink' => $skylink1 ] = $this->client->getSkynet()->uploadFile( new File( [
 			'data'     => Uint8Array::from( $data1 ),
 			'fileName' => $filename,
 		] ) );
-		[ 'skylink' => $skylink2 ] = $this->client->getSkyNet()->uploadFile( new File( [
+		[ 'skylink' => $skylink2 ] = $this->client->getSkynet()->uploadFile( new File( [
 			'data'     => Uint8Array::from( $data2 ),
 			'fileName' => $filename,
 		] ) );
@@ -466,26 +466,26 @@ class IntegrationsTest extends Unit {
 		$dataKey   = randomUnicodeString( 16 );
 		$entryLink = getEntryLink( $publicKey, $dataKey );
 
-		[ 'skylink' => $skylink1 ] = $this->client->getSkyNet()->uploadFile( new File( [
+		[ 'skylink' => $skylink1 ] = $this->client->getSkynet()->uploadFile( new File( [
 			'data'     => Uint8Array::from( $data1 ),
 			'fileName' => $filename,
 		] ) );
-		[ 'skylink' => $skylink2 ] = $this->client->getSkyNet()->uploadFile( new File( [
+		[ 'skylink' => $skylink2 ] = $this->client->getSkynet()->uploadFile( new File( [
 			'data'     => Uint8Array::from( $data2 ),
 			'fileName' => $filename,
 		] ) );
 
 		$this->client->getDb()->setDataLink( $privateKey, $dataKey, $skylink1 );;
 
-		$url = $this->client->getSkyNet()->getSkylinkUrl( $entryLink );
+		$url = $this->client->getSkynet()->getSkylinkUrl( $entryLink );
 
-		$response1 = $this->callPrivate( $this->client->getSkyNet(), 'getFileContentRequest', $url );
+		$response1 = $this->callPrivate( $this->client->getSkynet(), 'getFileContentRequest', $url );
 		$etag1     = $response1->getHeaderLine( 'etag' );
 		expect( $etag1 )->notToBeEmpty();
 
 		$this->client->getDb()->setDataLink( $privateKey, $dataKey, $skylink2 );;
 
-		$response1 = $this->callPrivate( $this->client->getSkyNet(), 'getFileContentRequest', $url );
+		$response1 = $this->callPrivate( $this->client->getSkynet(), 'getFileContentRequest', $url );
 		$etag2     = $response1->getHeaderLine( 'etag' );
 		expect( $etag2 )->notToBeEmpty();
 		expect( $etag2 )->notToEqual( $etag1 );
@@ -497,11 +497,11 @@ class IntegrationsTest extends Unit {
 			'fileName' => $this->dataKey,
 			'mime'     => $this->upload_plaintextType,
 		] );
-		[ 'skylink' => $skylink ] = $this->client->getSkyNet()->uploadFile( $file );
+		[ 'skylink' => $skylink ] = $this->client->getSkynet()->uploadFile( $file );
 
 		expect( $skylink )->notToBeEmpty();
 
-		$content = $this->client->getSkyNet()->getFileContent( $skylink );
+		$content = $this->client->getSkynet()->getFileContent( $skylink );
 		expect( $content->getData() )->toEqual( $this->upload_fileData );
 		expect( $content->getContentType() )->toEqual( $this->upload_plaintextType );
 		expect( $content->getPortalUrl() )->toEqual( $this->portal );
@@ -514,10 +514,10 @@ class IntegrationsTest extends Unit {
 			'fileName' => $this->dataKey,
 			'mime'     => $this->upload_plaintextType,
 		] );
-		[ 'skylink' => $skylink ] = $this->client->getSkyNet()->uploadFile( $file );
+		[ 'skylink' => $skylink ] = $this->client->getSkynet()->uploadFile( $file );
 		expect( $skylink )->notToBeEmpty();
 
-		$metadata = $this->client->getSkyNet()->getMetadata( $skylink );
+		$metadata = $this->client->getSkynet()->getMetadata( $skylink );
 
 		expect( $metadata->getMetadata() )->toEqual( $this->upload_plaintextMetadata );
 		expect( $metadata->getPortalUrl() )->toEqual( $this->portal );
@@ -530,10 +530,10 @@ class IntegrationsTest extends Unit {
 			'fileName' => $this->dataKey,
 			'mime'     => 'application/json',
 		] );
-		[ 'skylink' => $skylink ] = $this->client->getSkyNet()->uploadFile( $file );
+		[ 'skylink' => $skylink ] = $this->client->getSkynet()->uploadFile( $file );
 		expect( $skylink )->notToBeEmpty();
 
-		[ 'data' => $data, 'contentType' => $contentType ] = $this->client->getSkyNet()->getFileContent( $skylink );
+		[ 'data' => $data, 'contentType' => $contentType ] = $this->client->getSkynet()->getFileContent( $skylink );
 		$data = json_decode( $data );
 		expect( $data )->toBeObject();
 		expect( $data )->toEqual( (object) $this->upload_json );
@@ -545,9 +545,9 @@ class IntegrationsTest extends Unit {
 				'data'     => Uint8Array::from( json_encode( $this->upload_json ) ),
 				'fileName' => $this->dataKey . '.json'
 			] );
-			[ 'skylink' => $skylink ] = $this->client->getSkyNet()->uploadFile( $file );
+			[ 'skylink' => $skylink ] = $this->client->getSkynet()->uploadFile( $file );
 			expect( $skylink )->notToBeEmpty();
-			[ 'data' => $data, 'contentType' => $contentType ] = $this->client->getSkyNet()->getFileContent( $skylink );
+			[ 'data' => $data, 'contentType' => $contentType ] = $this->client->getSkynet()->getFileContent( $skylink );
 
 			$data = json_decode( $data );
 			expect( $data )->toBeObject();
@@ -560,9 +560,9 @@ class IntegrationsTest extends Unit {
 			'data'     => Uint8Array::from( json_encode( $this->upload_json ) ),
 			'fileName' => $this->dataKey,
 		] );
-		[ 'skylink' => $skylink ] = $this->client->getSkyNet()->uploadFile( $file );
+		[ 'skylink' => $skylink ] = $this->client->getSkynet()->uploadFile( $file );
 		expect( $skylink )->notToBeEmpty();
-		[ 'data' => $data, 'contentType' => $contentType ] = $this->client->getSkyNet()->getFileContent( $skylink );
+		[ 'data' => $data, 'contentType' => $contentType ] = $this->client->getSkynet()->getFileContent( $skylink );
 
 		$data = json_decode( $data );
 		expect( $data )->toBeObject();
@@ -574,11 +574,11 @@ class IntegrationsTest extends Unit {
 		$file = new File( [ 'data' => new Uint8Array(), 'fileName' => $this->dataKey ] );
 		expect( $file->getFileSize() )->toEqual( 0 );
 
-		[ 'skylink' => $skylink ] = $this->client->getSkyNet()->uploadFile( $file );
+		[ 'skylink' => $skylink ] = $this->client->getSkynet()->uploadFile( $file );
 
 		expect( $skylink )->notToBeEmpty();
 
-		[ 'data' => $data ] = $this->client->getSkyNet()->getFileContent( $skylink );
+		[ 'data' => $data ] = $this->client->getSkynet()->getFileContent( $skylink );
 
 		expect( $data )->toBeEmpty();
 	}
@@ -588,21 +588,21 @@ class IntegrationsTest extends Unit {
 		$file     = new File( [ 'data' => Uint8Array::from( $filedata ), 'fileName' => $this->dataKey ] );
 		expect( $file->getFileSize() )->toEqual( 1 );
 
-		[ 'skylink' => $skylink ] = $this->client->getSkyNet()->uploadFile( $file );
+		[ 'skylink' => $skylink ] = $this->client->getSkynet()->uploadFile( $file );
 
 		expect( $skylink )->notToBeEmpty();
 
-		[ 'data' => $data ] = $this->client->getSkyNet()->getFileContent( $skylink );
+		[ 'data' => $data ] = $this->client->getSkynet()->getFileContent( $skylink );
 
 		expect( $data )->toEqual( $filedata );
 	}
 
 	public function testPinSkylink_ShouldCallTheActualPinEndpointAndGetTheSkylinkFromTheHeaders() {
 		$file = new File( [ 'data' => Uint8Array::from( $this->upload_fileData ), 'fileName' => $this->dataKey ] );
-		[ 'skylink' => $skylink ] = $this->client->getSkyNet()->uploadFile( $file );
+		[ 'skylink' => $skylink ] = $this->client->getSkynet()->uploadFile( $file );
 		expect( $skylink )->notToBeEmpty();
 
-		[ 'skylink' => $skylink2 ] = $this->client->getSkyNet()->pinSkylink( $skylink );
+		[ 'skylink' => $skylink2 ] = $this->client->getSkynet()->pinSkylink( $skylink );
 
 		expect( $skylink )->toEqual( $skylink2 );
 	}
@@ -620,7 +620,7 @@ class IntegrationsTest extends Unit {
 			],
 		];
 
-		[ 'data' => $data, 'skylink' => $skylink ] = $this->client->getSkyNet()->resolveHns( $domain );
+		[ 'data' => $data, 'skylink' => $skylink ] = $this->client->getSkynet()->resolveHns( $domain );
 
 		expect( $skylink )->toEqual( $expectedEntryLink );
 		expect( $data )->toEqual( $expectedData );

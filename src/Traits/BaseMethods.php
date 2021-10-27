@@ -82,8 +82,8 @@ trait BaseMethods {
 		string $endpointPath, ?string $url = null, ?string $extraPath = null, ?array $query = null
 	) {
 		if ( null === $url ) {
-			if ( method_exists( $this, 'getSkyNet' ) ) {
-				$url = $this->getSkyNet()->getPortalUrl();
+			if ( method_exists( $this, 'getSkynet' ) ) {
+				$url = $this->getSkynet()->getPortalUrl();
 			} else {
 				$url = $this->getPortalUrl();
 			}

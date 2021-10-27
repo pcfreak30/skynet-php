@@ -516,17 +516,17 @@ class MySky {
 	 * @throws \Exception
 	 */
 	public function setPortalLogin( string $email, string $password ) {
-		$this->getSkyNet()->setPortalLogin( $email, $password );
+		$this->getSkynet()->setPortalLogin( $email, $password );
 	}
 
 	/**
 	 * @return \Skynet\Skynet
 	 */
-	public function getSkyNet(): Skynet {
+	public function getSkynet(): Skynet {
 		return $this->db->getSkynet();
 	}
 
 	public function setPortal( string $portalUrl ) {
-		$this->getSkyNet()->setPortal( $portalUrl );
+		$this->getSkynet()->setPortal( $portalUrl );
 	}
 }
