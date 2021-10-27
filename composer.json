@@ -29,6 +29,7 @@
       "src/functions/encrypted_files.php",
       "src/functions/file.php",
       "src/functions/formatting.php",
+      "src/functions/misc.php",
       "src/functions/mysky.php",
       "src/functions/options.php",
       "src/functions/registry.php",
