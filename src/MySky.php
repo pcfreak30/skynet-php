@@ -251,7 +251,7 @@ class MySky {
 		if ( ! is_array( $json ) && ! ( $json instanceof stdClass ) ) {
 			throwValidationError( 'json', $json, 'parameter', 'object or array' );
 		}
-		$json = arrayToObject($json);
+		$json    = arrayToObject( $json );
 		$options = $this->buildSetJSONOptions( $options );
 
 		$publicKey = $this->getUserId();
@@ -260,7 +260,7 @@ class MySky {
 		$options->setHashedDataKeyHex( true );
 
 		[ $entry, $dataLink ] = $this->db->getOrCreateRegistryEntry( $publicKey, $dataKey, $json, $options );
-		$signature =  $this->signRegistryEntry($entry, $path);
+		$signature = $this->signRegistryEntry( $entry, $path );
 
 		$setEntryOptions = extractOptions( $options, Registry::DEFAULT_SET_ENTRY_OPTIONS );
 		$this->getRegistry()->postSignedEntry( $publicKey, $entry, $signature, makeSetEntryOptions( $setEntryOptions ) );
@@ -276,6 +276,18 @@ class MySky {
 	 */
 	private function buildSetJSONOptions( CustomSetJSONOptions $options = null, array $funcOptions = [] ): CustomSetJSONOptions {
 		return $this->buildOptions( Db::DEFAULT_GET_JSON_OPTIONS, CustomSetJSONOptions::class, $options, $funcOptions );
+	}
+
+	/**
+	 * @param \Skynet\Types\RegistryEntry $entry
+	 * @param string                      $path
+	 *
+	 * @return \Skynet\Uint8Array
+	 */
+	private function signRegistryEntry( RegistryEntry $entry, string $path ): Uint8Array {
+		[ 'privateKey' => $privateKey ] = genKeyPairFromSeed( $this->key->getSeed() );
+
+		return signEntry( $privateKey, $entry, true );
 	}
 
 	/**
@@ -493,18 +505,6 @@ class MySky {
 		}
 
 		return $this->signRegistryEntry( $entry, $path );
-	}
-
-	/**
-	 * @param \Skynet\Types\RegistryEntry $entry
-	 * @param string                      $path
-	 *
-	 * @return \Skynet\Uint8Array
-	 */
-	private function signRegistryEntry( RegistryEntry $entry, string $path ): Uint8Array {
-		[ 'privateKey' => $privateKey ] = genKeyPairFromSeed( $this->key->getSeed() );
-
-		return signEntry( $privateKey, $entry, true );
 	}
 
 	/**
