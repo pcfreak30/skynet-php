@@ -251,6 +251,7 @@ class MySky {
 		if ( ! is_array( $json ) && ! ( $json instanceof stdClass ) ) {
 			throwValidationError( 'json', $json, 'parameter', 'object or array' );
 		}
+		$json = arrayToObject($json);
 		$options = $this->buildSetJSONOptions( $options );
 
 		$publicKey = $userId ?? $this->getUserId();
