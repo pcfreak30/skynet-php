@@ -1463,8 +1463,8 @@ function seedToSeedWords( Uint8Array $seed ) {
  * @return \Skynet\Types\KeyPair
  * @throws \SodiumException
  */
-function genKeyPairFromSeed( Uint8Array $seed ): KeyPair {
-	$bytes     = sha512( SALT_ROOT_DISCOVERABLE_KEY ) . sha512( $seed->toString() );
+function genKeyPairFromSeed( string $seed ): KeyPair {
+	$bytes     = sha512( SALT_ROOT_DISCOVERABLE_KEY ) . sha512( $seed );
 	$hashBytes = substr( sha512( $bytes ), 0, 32 );
 
 	$keyPair = crypto_sign_seed_keypair( $hashBytes );
