@@ -237,7 +237,7 @@ class MySky {
 
 	/**
 	 * @param string                                    $path
-	 * @param array                                     $json
+	 * @param \stdClass|array                           $json
 	 * @param string|null                               $userId
 	 * @param \Skynet\Options\CustomSetJSONOptions|null $options
 	 *
@@ -452,7 +452,7 @@ class MySky {
 
 	/**
 	 * @param string                                    $path
-	 * @param \stdClass                                 $json
+	 * @param \stdClass|array                           $json
 	 * @param \Skynet\Options\CustomSetJSONOptions|null $options
 	 *
 	 * @return \Skynet\Types\EncryptedJSONResponse
