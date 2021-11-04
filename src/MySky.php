@@ -15,6 +15,7 @@ use Skynet\Types\KeyPairAndSeed;
 use Skynet\Types\RegistryEntry;
 use function Skynet\functions\crypto\genKeyPairAndSeed;
 use function Skynet\functions\misc\arrayToObject;
+use function Skynet\functions\mysky\generateSeedPhrase;
 use function Skynet\functions\mysky\genKeyPairFromSeed;
 use function Skynet\functions\encrypted_files\decryptJSONFile;
 use function Skynet\functions\encrypted_files\deriveEncryptedFileKeyEntropy;
@@ -128,20 +129,16 @@ class MySky {
 			$options = new CustomConnectorOptions( self::DEFAULT_CONNECTOR_OPTIONS );
 		}
 
-		$key = null;
-
-		if ( null !== $seed ) {
-			[ $valid, $error ] = validatePhrase( $seed );
-			if ( ! $valid || ! $seed ) {
-				throw new \Exception( $error );
-			}
-
-			$key = KeyPairAndSeed::fromSeed( $seed );
+		if ( null === $seed ) {
+			$seed = generateSeedPhrase();
 		}
 
-		if ( null === $key ) {
-			$key = genKeyPairAndSeed();
+		[ $valid, $error ] = validatePhrase( $seed );
+		if ( ! $valid || ! $seed ) {
+			throw new \Exception( $error );
 		}
+
+		$key = KeyPairAndSeed::fromSeed( $seed );
 
 		$this->db                = $db;
 		$this->connectionOptions = $options;
