@@ -345,6 +345,7 @@ class MySky {
 		/** @var \Skynet\Types\SignedRegistryEntry $entry */
 		[ 'entry' => $entry ] = $this->getRegistry()->getEntry( $publicKey, $dataKey, $options );
 		if ( $entry ) {
+			/** @var \Skynet\Types\RegistryEntry $entry */
 			$data = $entry->getData();
 		}
 
