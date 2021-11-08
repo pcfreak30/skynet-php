@@ -13,6 +13,22 @@ class EncryptedJSONResponse extends Entity {
 	 */
 	protected ?\stdClass $data = null;
 
+	protected ?string $dataLink = null;
+
+	/**
+	 * @return string|null
+	 */
+	public function getDataLink(): ?string {
+		return $this->dataLink;
+	}
+
+	/**
+	 * @param string|null $dataLink
+	 */
+	public function setDataLink( ?string $dataLink ): void {
+		$this->dataLink = $dataLink;
+	}
+
 	/**
 	 * @return array|null
 	 */

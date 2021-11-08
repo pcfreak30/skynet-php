@@ -423,7 +423,7 @@ class MySky {
 		$pathSeed  = $pathHashed ? $path : $this->getEncryptedFileSeed( $path, false );
 
 		$dataKey = deriveEncryptedFileTweak( $pathSeed );
-		[ 'data' => $data ] = $this->db->getRawBytes( $publicKey, $dataKey, $options );
+		[ 'data' => $data, 'dataLink' => $dataLink ] = $this->db->getRawBytes( $publicKey, $dataKey, $options );
 
 		if ( null === $data ) {
 			return new EncryptedJSONResponse( [ 'data' => null ] );
@@ -432,7 +432,7 @@ class MySky {
 		$key  = deriveEncryptedFileKeyEntropy( $pathSeed );
 		$json = decryptJSONFile( $data, $key );
 
-		return new EncryptedJSONResponse( [ 'data' => $json ] );
+		return new EncryptedJSONResponse( [ 'data' => $json, 'dataLink' => $dataLink ] );
 	}
 
 	/**
@@ -483,9 +483,12 @@ class MySky {
 		$signature = $this->signEncryptedRegistryEntry( $entry, $path );
 
 		$setEntryOptions = extractOptions( $options, Registry::DEFAULT_SET_ENTRY_OPTIONS );
-		$this->getRegistry()->postSignedEntry( $publicKey, $entry, $signature, $setEntryOptions );
+		$this->getRegistry()->postSignedEntry( $publicKey, $entry, $signature, makeSetEntryOptions( $setEntryOptions ) );
 
-		return new EncryptedJSONResponse( [ 'data' => $json ] );
+		return new EncryptedJSONResponse( [
+			'data'     => $json,
+			'dataLink' => formatSkylink( encodeSkylinkBase64( $entry->getData() ) ),
+		] );
 	}
 
 	/**
