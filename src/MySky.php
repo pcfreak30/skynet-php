@@ -299,6 +299,7 @@ class MySky {
 		return $this->db;
 	}
 
+
 	/**
 	 * @param string                                    $path
 	 * @param string                                    $dataLink
@@ -306,21 +307,16 @@ class MySky {
 	 *
 	 * @return void
 	 * @throws \Requests_Exception
+	 * @throws \SodiumException
 	 */
-	public function setDataLink( string $path, string $dataLink, ?CustomSetJSONOptions $options = null ): void {
+	public function setDataLink( string $path, string $dataLink, ?CustomSetJSONOptions $options = null): void {
 		$options = $this->buildSetJSONOptions( $options );
 
-		$publicKey = $this->getUserId();
-		$dataKey   = deriveDiscoverableFileTweak( $path );
+		$dataKey    = deriveDiscoverableFileTweak( $path );
+		$privateKey = $this->key->getPrivateKey();
 		$options->setHashedDataKeyHex( true );
 
-		$getEntryOptions = extractOptions( $options, Registry::DEFAULT_GET_ENTRY_OPTIONS );
-		$entry           = $this->db->getNextRegistryEntry( $publicKey, $dataKey, decodeSkylink( $dataLink ), makeGetEntryOptions( $getEntryOptions ) );
-
-		$signature = $this->signRegistryEntry( $entry, $path );
-
-		$setEntryOptions = extractOptions( $options, Registry::DEFAULT_SET_ENTRY_OPTIONS );
-		$this->getRegistry()->postSignedEntry( $publicKey, $entry, $signature, makeSetEntryOptions( $setEntryOptions ) );
+		$this->getDb()->setDataLink( $privateKey, $dataKey, $dataLink, $options );
 	}
 
 	/**
