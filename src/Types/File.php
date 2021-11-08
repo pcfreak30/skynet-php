@@ -106,10 +106,12 @@ class File extends Entity {
 	 */
 	public function setFileName( string $fileName ): void {
 		$dirname = pathinfo( $fileName, PATHINFO_DIRNAME );
-		$dirname = trim($dirname, '.');
+		$dirname = trim( $dirname, '.' );
 		if ( $dirname ) {
 			$fileName       = pathinfo( $fileName, PATHINFO_BASENAME );
 			$this->filePath = $dirname;
+		} else {
+			$this->filePath = null;
 		}
 		$this->fileName = $fileName;
 	}
