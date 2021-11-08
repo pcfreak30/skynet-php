@@ -13,7 +13,8 @@ use Skynet\Types\EntryData;
 use Skynet\Types\JSONResponse;
 use Skynet\Types\KeyPairAndSeed;
 use Skynet\Types\RegistryEntry;
-use function Skynet\functions\crypto\genKeyPairAndSeed;
+use function Skynet\functions\encoding\encodeSkylinkBase64;
+use function Skynet\functions\formatting\formatSkylink;
 use function Skynet\functions\misc\arrayToObject;
 use function Skynet\functions\mysky\generateSeedPhrase;
 use function Skynet\functions\mysky\genKeyPairFromSeed;
@@ -214,9 +215,7 @@ class MySky {
 	 * @return string
 	 */
 	public function getUserId(): string {
-		[ 'publicKey' => $publicKey ] = genKeyPairFromSeed( $this->key->getSeed() );
-
-		return $publicKey;
+		return $this->key->getPublicKey();
 	}
 
 	/**
@@ -232,7 +231,6 @@ class MySky {
 		$options = makeGetEntryOptions( [ 'hashedDataKeyHex' => true ] );
 
 		return getEntryLink( $publicKey, $dataKey, $options );
-
 	}
 
 	/**
