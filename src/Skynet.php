@@ -5,8 +5,10 @@ namespace Skynet;
 use Exception;
 use GuzzleHttp\Cookie\CookieJar;
 use GuzzleHttp\Cookie\SetCookie;
+use GuzzleHttp\Psr7\LazyOpenStream;
 use GuzzleHttp\Psr7\MimeType;
 use GuzzleHttp\Psr7\Response;
+use GuzzleHttp\Psr7\Utils;
 use Skynet\Options\CustomClientOptions;
 use Skynet\Options\CustomDownloadOptions;
 use Skynet\Options\CustomGetMetadataOptions;
@@ -14,6 +16,7 @@ use Skynet\Options\CustomHnsDownloadOptions;
 use Skynet\Options\CustomHnsResolveOptions;
 use Skynet\Options\CustomPinOptions;
 use Skynet\Options\CustomUploadOptions;
+use Skynet\Options\Request;
 use Skynet\Traits\BaseMethods;
 use Skynet\Types\File;
 use Skynet\Types\GetFileContentResponse;
@@ -808,8 +811,7 @@ class Skynet {
 	 * @throws \GuzzleHttp\Exception\GuzzleException
 	 */
 	private function uploadSmallFileRequest( File $file, CustomUploadOptions $options ): Response {
-		$options  = $this->buildUploadOptions( $options );
-		$formData = [];
+		$options = $this->buildUploadOptions( $options );
 
 		$requestOpts = $options->getExtraOptions();
 
@@ -826,7 +828,7 @@ class Skynet {
 		$fileHeaders['Content-Type'] = $file->getMime();
 
 		if ( $file->getData() ) {
-			$formData[] = [
+			$formDataItem = [
 				'name'     => PORTAL_FILE_FIELD_NAME,
 				'contents' => $file->getData()->toString(),
 				'filename' => ! empty( $options->getCustomFilename() ) ? $options->getCustomFilename() : $file->getFileName(),
@@ -834,15 +836,19 @@ class Skynet {
 			];
 
 		} else {
-			$formData[] = [
+			$formDataItem = [
 				'name'     => PORTAL_FILE_FIELD_NAME,
 				'contents' => $file->getFileName(),
 				'filename' => $options->getCustomFilename(),
 				'headers'  => $fileHeaders,
 			];
+			if ( $file->getStream() ) {
+				$formDataItem['contents'] = $file->getStream();
+				$formDataItem['filename'] = empty( $options->getCustomFilename() ) ? $file->getFileName() : $options->getCustomFilename();
+			}
 		}
 
-		$requestOpts['multipart'] = $formData;
+		$requestOpts['multipart'] = [ $formDataItem ];
 
 		return $this->executeRequest( $this->buildRequestOptions( $options->toArray(), [
 			'options'      => $requestOpts,
