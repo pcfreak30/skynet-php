@@ -243,7 +243,7 @@ class MySky {
 	 * @throws \Requests_Exception
 	 */
 	public function setJSON( string $path, $json, ?CustomSetJSONOptions $options = null ): JSONResponse {
-		if ( ! is_array( $json ) && ! ( $json instanceof stdClass ) ) {
+		if ( ! is_array( $json ) && ! ( $json instanceof \stdClass ) ) {
 			throwValidationError( 'json', $json, 'parameter', 'object or array' );
 		}
 		$json    = arrayToObject( $json );
