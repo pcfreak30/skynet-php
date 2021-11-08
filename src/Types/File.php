@@ -3,6 +3,7 @@
 namespace Skynet\Types;
 
 use GuzzleHttp\Psr7\MimeType;
+use Psr\Http\Message\StreamInterface;
 use Skynet\Entity;
 use Skynet\Uint8Array;
 
@@ -22,6 +23,11 @@ class File extends Entity {
 	 * @var string|null
 	 */
 	protected ?string $filePath = null;
+
+	/**
+	 * @var string|null
+	 */
+	protected ?StreamInterface $stream = null;
 	/**
 	 * @var string|null
 	 */
@@ -46,6 +52,15 @@ class File extends Entity {
 			} else {
 				$file->setData( Uint8Array::from( $resource ) );
 				$file->setFileName( $fileName );
+			}
+		}
+
+		if ( $resource instanceof StreamInterface ) {
+			$file->setFileName( $fileName );
+			$file->setStream( $resource );
+			$mime = MimeType::fromFilename( $fileName );
+			if ( $mime ) {
+				$file->setMime( $mime );
 			}
 		}
 
@@ -117,6 +132,10 @@ class File extends Entity {
 	 * @return int
 	 */
 	public function getFileSize(): int {
+		if ( isset( $this->stream ) ) {
+			return $this->stream->getSize();
+		}
+
 		if ( isset( $this->filePath ) ) {
 			return filesize( $this->filePath );
 		}
@@ -140,5 +159,19 @@ class File extends Entity {
 	 */
 	public function setMime( ?string $mime ): void {
 		$this->mime = $mime;
+	}
+
+	/**
+	 * @return string|null
+	 */
+	public function getStream() {
+		return $this->stream;
+	}
+
+	/**
+	 * @param string|null $stream
+	 */
+	public function setStream( $stream ): void {
+		$this->stream = $stream;
 	}
 }
