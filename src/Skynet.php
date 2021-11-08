@@ -232,13 +232,18 @@ class Skynet {
 	 *
 	 * @return mixed
 	 */
-	public function downloadFile( string $skylinkUrl, ?CustomDownloadOptions $options = null ): Response {
+	public function downloadFile( string $skylinkUrl, ?CustomDownloadOptions $options = null, ?Request $reqOptions = null ): Response {
 
-		$options = $this->buildDownloadOptions( $options, [ 'download' => true ] );
+		$options    = $this->buildDownloadOptions( $options, [ 'download' => true ] );
+		$reqOptions = $this->buildRequestOptions( $reqOptions ? $reqOptions->toArray() : null,
+			[
+				'method' => 'GET',
+				'endpointPath' => $options->getEndpointDownload(),
+			] );
 
-		$url = $this->getSkylinkUrl( $skylinkUrl, $options );
+		$reqOptions->setUrl( $this->getSkylinkUrl( $skylinkUrl, $options ) );
 
-		return $this->getHttpClient()->request( 'get', $url );
+		return $this->executeRequest( $reqOptions );
 	}
 
 	/**
