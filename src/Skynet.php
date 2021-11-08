@@ -906,10 +906,31 @@ class Skynet {
 			'headers' => $headers,
 		], $requestOpts ) );
 
+		if ( $file->getStream() ) {
+			$temp   = tempnam( sys_get_temp_dir(), 'skynet' );
+			$buffer = new LazyOpenStream( $temp, 'wb' );
+
+			Utils::copyToStream( $file->getStream(), $buffer );
+			$buffer->close();
+		}
+
+		if ( $file->getData() ) {
+			$temp = tempnam( sys_get_temp_dir(), 'skynet' );
+			file_put_contents( $temp, $file->getData()->toString() );
+		}
+
+		if ( isset( $temp ) ) {
+			$file->setFileName( $temp );
+		}
+
 		$client
 			->setKey( generate_uuid4() )
-			->file( $file->getFilePath(), $filename )
+			->file( trailingslashit( $file->getFilePath() ) . $file->getFileName(), $filename )
 			->upload();
+
+		if ( isset( $temp ) ) {
+			@unlink( $temp );
+		}
 
 		return $client->getUrl();
 	}
