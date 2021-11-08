@@ -2,7 +2,8 @@
 
 namespace Skynet\Types;
 
-use function Skynet\functions\crypto\genKeyPairFromSeed;
+use function Skynet\functions\mysky\genKeyPairFromSeed;
+use function Skynet\functions\crypto\genKeyPairFromSeed as genKeyPairFromPlainSeed;
 
 /**
  *
@@ -21,6 +22,11 @@ class KeyPairAndSeed extends KeyPair {
 	public static function fromSeed( string $seed ): self {
 		return new self( array_merge( genKeyPairFromSeed( $seed )->toArray(), [ 'seed' => $seed ] ) );
 	}
+
+	public static function fromPlainSeed( string $seed ): self {
+		return new self( array_merge( genKeyPairFromPlainSeed( $seed )->toArray(), [ 'seed' => $seed ] ) );
+	}
+
 
 	/**
 	 * @return string
