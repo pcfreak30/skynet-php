@@ -389,10 +389,10 @@ class Db {
 
 		$uploadOptions = extractOptions( $options, Skynet::DEFAULT_UPLOAD_OPTIONS );
 
-		$skyfile = $this->getSkynet()->uploadFile( $file, $uploadOptions );
+		$skyfile = $this->getSkynet()->uploadFile( $file, makeUploadOptions( $uploadOptions ) );
 
 		$getEntryOptions = extractOptions( $options, Registry::DEFAULT_GET_ENTRY_OPTIONS );
-		$signedEntry     = $this->registry->getEntry( $publicKey, $dataKey, $getEntryOptions );
+		$signedEntry     = $this->registry->getEntry( $publicKey, $dataKey, makeGetEntryOptions( $getEntryOptions ) );
 
 		$revision = $this->getNextRevisionFromEntry( $signedEntry->getEntry() );
 
@@ -400,7 +400,7 @@ class Db {
 		$rawDataLink = decodeSkylinkBase64( $dataLink );
 		validateUint8ArrayLen( 'rawDataLink', $rawDataLink, 'skylink byte array', RAW_SKYLINK_SIZE );
 
-		return new RegistryEntry( $dataKey, $data, $revision );
+		return new RegistryEntry( $dataKey, $rawDataLink, $revision );
 	}
 
 	/**
@@ -457,14 +457,14 @@ class Db {
 	public function setDataLink( string $privateKey, string $dataKey, string $dataLink, ?CustomSetJSONOptions $options = null ): void {
 		validateHexString( 'privateKey', $privateKey, 'parameter' );
 
-		$options =	$this->buildSetJSONOptions( $options );
+		$options = $this->buildSetJSONOptions( $options );
 
 		$publicKey = toHexString( crypto_sign_publickey_from_secretkey( hexToString( $privateKey ) ) );
 
 		$getEntryOptions = extractOptions( $options, Registry::DEFAULT_GET_ENTRY_OPTIONS );
-		$entry           = $this->getNextRegistryEntry( $publicKey, $dataKey, decodeSkylink( $dataLink ), makeGetEntryOptions( $getEntryOptions) );
+		$entry           = $this->getNextRegistryEntry( $publicKey, $dataKey, decodeSkylink( $dataLink ), makeGetEntryOptions( $getEntryOptions ) );
 
 		$setEntryOptions = extractOptions( $options, Registry::DEFAULT_SET_ENTRY_OPTIONS );
-		$this->registry->setEntry( $privateKey, $entry, makeSetEntryOptions( $setEntryOptions) );
+		$this->registry->setEntry( $privateKey, $entry, makeSetEntryOptions( $setEntryOptions ) );
 	}
 }

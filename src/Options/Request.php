@@ -9,7 +9,7 @@ class Request extends CustomClientOptions {
 	/**
 	 * @var string|null
 	 */
-	protected ?string $endpointPath = null;
+	protected ?string $endpointPath;
 	/**
 	 * @var null
 	 */
@@ -46,8 +46,8 @@ class Request extends CustomClientOptions {
 	/**
 	 * @return string
 	 */
-	public function getEndpointPath(): string {
-		return $this->endpointPath;
+	public function getEndpointPath(): ?string {
+		return $this->endpointPath ?? null;
 	}
 
 	/**

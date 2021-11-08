@@ -497,7 +497,7 @@ class MySky {
 	 */
 	function signEncryptedRegistryEntry( RegistryEntry $entry, string $path ): Uint8Array {
 		$pathSeed = $this->getEncryptedFileSeed( $path, false );
-		$dataKey  = deriveDiscoverableFileTweak( $pathSeed );
+		$dataKey  = deriveEncryptedFileTweak( $pathSeed );
 		if ( $entry->getDataKey() !== $dataKey ) {
 			throw new \Exception( 'Path does not match the data key in the encrypted registry entry.' );
 		}
