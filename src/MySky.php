@@ -133,16 +133,10 @@ class MySky {
 			$seed = generateSeedPhrase();
 		}
 
-		[ $valid, $error ] = validatePhrase( $seed );
-		if ( ! $valid || ! $seed ) {
-			throw new \Exception( $error );
-		}
-
-		$key = KeyPairAndSeed::fromSeed( $seed );
+		$this->setSeed( $seed);
 
 		$this->db                = $db;
 		$this->connectionOptions = $options;
-		$this->key               = $key;
 		$this->options           = makeClientOptions( [] );
 	}
 
@@ -467,7 +461,7 @@ class MySky {
 	 * @param \Skynet\Options\CustomSetJSONOptions|null $options
 	 *
 	 * @return \Skynet\Types\EncryptedJSONResponse
-	 * @throws \Requests_Exception
+	 * @throws \GuzzleHttp\Exception\GuzzleException
 	 */
 	public function setJSONEncrypted( string $path, $json, CustomSetJSONOptions $options = null ): EncryptedJSONResponse {
 		if ( ! is_array( $json ) && ! ( $json instanceof \stdClass ) ) {
@@ -538,5 +532,14 @@ class MySky {
 
 	public function setPortal( string $portalUrl ) {
 		$this->getSkynet()->setPortal( $portalUrl );
+	}
+
+	public function setSeed( string $seed ): void {
+		[ $valid, $error ] = validatePhrase( $seed );
+		if ( ! $valid || ! $seed ) {
+			throw new \Exception( $error );
+		}
+
+		$this->key = KeyPairAndSeed::fromSeed( $seed );
 	}
 }
