@@ -14,17 +14,17 @@ use Skynet\Types\JSONResponse;
 use Skynet\Types\KeyPairAndSeed;
 use Skynet\Types\RegistryEntry;
 use function Skynet\functions\encoding\encodeSkylinkBase64;
-use function Skynet\functions\formatting\formatSkylink;
-use function Skynet\functions\misc\arrayToObject;
-use function Skynet\functions\mysky\generateSeedPhrase;
-use function Skynet\functions\mysky\genKeyPairFromSeed;
 use function Skynet\functions\encrypted_files\decryptJSONFile;
 use function Skynet\functions\encrypted_files\deriveEncryptedFileKeyEntropy;
 use function Skynet\functions\encrypted_files\deriveEncryptedFileTweak;
 use function Skynet\functions\encrypted_files\encryptJSONFile;
 use function Skynet\functions\encrypted_files\sha512;
+use function Skynet\functions\formatting\formatSkylink;
 use function Skynet\functions\formatting\toHexString;
+use function Skynet\functions\misc\arrayToObject;
 use function Skynet\functions\mysky\deriveEncryptedFileSeed;
+use function Skynet\functions\mysky\generateSeedPhrase;
+use function Skynet\functions\mysky\genKeyPairFromSeed;
 use function Skynet\functions\mysky\validatePhrase;
 use function Skynet\functions\options\extractOptions;
 use function Skynet\functions\options\makeClientOptions;
@@ -35,7 +35,6 @@ use function Skynet\functions\options\makeSetEntryOptions;
 use function Skynet\functions\options\mergeOptions;
 use function Skynet\functions\registry\getEntryLink;
 use function Skynet\functions\registry\signEntry;
-use function Skynet\functions\sia\decodeSkylink;
 use function Skynet\functions\tweak\deriveDiscoverableFileTweak;
 use function Skynet\functions\validation\throwValidationError;
 
@@ -299,6 +298,19 @@ class MySky {
 		return $this->db;
 	}
 
+	/**
+	 * @param string                                    $path
+	 * @param string                                    $dataLink
+	 * @param \Skynet\Options\CustomSetJSONOptions|null $options
+	 *
+	 * @return void
+	 * @throws \Requests_Exception
+	 * @throws \SodiumException
+	 */
+	public function setEncryptedDataLink( string $path, string $dataLink, ?CustomSetJSONOptions $options = null ): void {
+		$this->setDataLink( $path, $dataLink, $options, true );
+	}
+
 
 	/**
 	 * @param string                                    $path
@@ -309,14 +321,34 @@ class MySky {
 	 * @throws \Requests_Exception
 	 * @throws \SodiumException
 	 */
-	public function setDataLink( string $path, string $dataLink, ?CustomSetJSONOptions $options = null): void {
+	public function setDataLink( string $path, string $dataLink, ?CustomSetJSONOptions $options = null, $encrypted = false ): void {
 		$options = $this->buildSetJSONOptions( $options );
 
-		$dataKey    = deriveDiscoverableFileTweak( $path );
+		if ( $encrypted ) {
+			$path = $this->getEncryptedFileSeed( $path, false );
+		}
+
+		$dataKey    = $encrypted ? deriveEncryptedFileTweak( $path ) : deriveDiscoverableFileTweak( $path );
 		$privateKey = $this->key->getPrivateKey();
 		$options->setHashedDataKeyHex( true );
 
 		$this->getDb()->setDataLink( $privateKey, $dataKey, $dataLink, $options );
+	}
+
+	/**
+	 * @param string $path
+	 * @param bool   $isDirectory
+	 *
+	 * @return string
+	 * @throws \Exception
+	 */
+	public function getEncryptedFileSeed( string $path, bool $isDirectory ): string {
+		$data = sha512( self::SALT_ENCRYPTED_PATH_SEED ) . hash( 'sha512', $this->key->getSeed() );
+		$hash = sha512( $data );
+
+		$rootPathSeed = toHexString( substr( $hash, 0, self::ENCRYPTION_PATH_SEED_LENGTH ) );
+
+		return deriveEncryptedFileSeed( $rootPathSeed, $path, $isDirectory );
 	}
 
 	/**
@@ -427,22 +459,6 @@ class MySky {
 		$json = decryptJSONFile( $data, $key );
 
 		return new EncryptedJSONResponse( [ 'data' => $json, 'dataLink' => $dataLink ] );
-	}
-
-	/**
-	 * @param string $path
-	 * @param bool   $isDirectory
-	 *
-	 * @return string
-	 * @throws \Exception
-	 */
-	public function getEncryptedFileSeed( string $path, bool $isDirectory ): string {
-		$data = sha512( self::SALT_ENCRYPTED_PATH_SEED ) . hash( 'sha512', $this->key->getSeed() );
-		$hash = sha512( $data );
-
-		$rootPathSeed = toHexString( substr( $hash, 0, self::ENCRYPTION_PATH_SEED_LENGTH ) );
-
-		return deriveEncryptedFileSeed( $rootPathSeed, $path, $isDirectory );
 	}
 
 	/**
