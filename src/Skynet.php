@@ -240,7 +240,7 @@ class Skynet {
 		$options    = $this->buildDownloadOptions( $options, [ 'download' => true ] );
 		$reqOptions = $this->buildRequestOptions( $reqOptions ? $reqOptions->toArray() : null,
 			[
-				'method' => 'GET',
+				'method'       => 'GET',
 				'endpointPath' => $options->getEndpointDownload(),
 			] );
 
@@ -870,22 +870,22 @@ class Skynet {
 
 		validateLargeUploadResponse( $response );
 
-		$skylink = formatSkylink( $response->getHeader( "skynet-skylink" )[0] ?? null );
+		$skylink = formatSkylink( $response->getHeaderLine( "skynet-skylink" ) ?? null );
 
-		return new UploadRequestResponse( [ 'slylink' => $skylink ] );
+		return new UploadRequestResponse( [ 'skylink' => $skylink ] );
 	}
 
 	/**
 	 * @param \Skynet\Types\File                  $file
 	 * @param \Skynet\Options\CustomUploadOptions $options
 	 *
-	 * @return string|null
+	 * @return \GuzzleHttp\Psr7\Response
 	 * @throws \GuzzleHttp\Exception\GuzzleException
 	 * @throws \ReflectionException
 	 * @throws \TusPhp\Exception\ConnectionException
 	 * @throws \TusPhp\Exception\TusException
 	 */
-	private function uploadLargeFileRequest( File $file, CustomUploadOptions $options ) {
+	private function uploadLargeFileRequest( File $file, CustomUploadOptions $options ): Response {
 		$options = $this->buildUploadOptions( $options );
 
 		$url     = $this->buildRequestUrl( $options->getEndpointLargeUpload() );
@@ -902,16 +902,18 @@ class Skynet {
 			$requestOpts['auth'] = [ '', $options->getApiKey(), 'basic' ];
 		}
 
-		$client = new Client( $url, array_merge( [
+		$client = new Client( trailingslashit( dirname( $url ) ), array_merge( [
 			'headers' => $headers,
 		], $requestOpts ) );
+
+		$client->setApiPath( basename( $url ) );
 
 		if ( $file->getStream() ) {
 			$temp   = tempnam( sys_get_temp_dir(), 'skynet' );
 			$buffer = new LazyOpenStream( $temp, 'wb' );
-
 			Utils::copyToStream( $file->getStream(), $buffer );
 			$buffer->close();
+			$file->setStream( null );
 		}
 
 		if ( $file->getData() ) {
@@ -925,14 +927,20 @@ class Skynet {
 
 		$client
 			->setKey( generate_uuid4() )
-			->file( trailingslashit( $file->getFilePath() ) . $file->getFileName(), $filename )
-			->upload();
+			->file( trailingslashit( $file->getFilePath() ) . $file->getFileName(), $filename );
+
+		$size = $file->getFileSize();
+
+		do {
+			$pos = $client->upload( TUS_CHUNK_SIZE );
+		} while ( $pos < $size );
 
 		if ( isset( $temp ) ) {
 			@unlink( $temp );
 		}
-
-		return $client->getUrl();
+		return $client->getClient()->head( $client->getUrl(), [
+			'headers' => [ 'Tus-Resumable' => Client::TUS_PROTOCOL_VERSION ],
+		] );
 	}
 
 	/**

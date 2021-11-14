@@ -6,6 +6,7 @@ use GuzzleHttp\Psr7\MimeType;
 use Psr\Http\Message\StreamInterface;
 use Skynet\Entity;
 use Skynet\Uint8Array;
+use function Skynet\functions\url\trailingslashit;
 
 /**
  *
@@ -139,7 +140,7 @@ class File extends Entity {
 		}
 
 		if ( isset( $this->filePath ) ) {
-			return filesize( $this->filePath );
+			return filesize( trailingslashit( $this->filePath ) . $this->fileName );
 		}
 
 		if ( isset( $this->data ) ) {
