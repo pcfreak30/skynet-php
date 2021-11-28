@@ -25,7 +25,6 @@ use Skynet\Types\PinResponse;
 use Skynet\Types\ResolveHnsResponse;
 use Skynet\Types\UploadRequestResponse;
 use TusPhp\Tus\Client;
-use function Skynet\Filesystem\stripSkylinkPrefix;
 use function Skynet\functions\formatting\formatSkylink;
 use function Skynet\functions\options\makeDownloadOptions;
 use function Skynet\functions\options\makeGetEntryOptions;
@@ -38,6 +37,7 @@ use function Skynet\functions\registry\validateRegistryProofResponse;
 use function Skynet\functions\skylinks\buildDownloadQuery;
 use function Skynet\functions\skylinks\getSkylinkUrlForPortal;
 use function Skynet\functions\skylinks\parseSkylink;
+use function Skynet\functions\strings\trimPrefix;
 use function Skynet\functions\upload\generate_uuid4;
 use function Skynet\functions\upload\validateLargeUploadResponse;
 use function Skynet\functions\upload\validateUploadResponse;
@@ -1185,7 +1185,7 @@ class Skynet {
 		validateSkylinkString( 'skylink', $skylink, 'parameter' );
 
 		$response = $this->executeRequest( $this->buildRequestOptions( [
-			'url'          => $this->portalAccountUrl . '/user/uploads/' . stripSkylinkPrefix( $skylink ),
+			'url'          => $this->portalAccountUrl . '/user/uploads/' . trimPrefix( $skylink, URI_SKYNET_PREFIX ),
 			'endpointPath' => '',
 			'method'       => 'DELETE',
 			'headers'      => [ 'Referer' => $this->portalAccountUrl ],
