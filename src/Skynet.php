@@ -25,6 +25,7 @@ use Skynet\Types\PinResponse;
 use Skynet\Types\ResolveHnsResponse;
 use Skynet\Types\UploadRequestResponse;
 use TusPhp\Tus\Client;
+use function Skynet\Filesystem\stripSkylinkPrefix;
 use function Skynet\functions\formatting\formatSkylink;
 use function Skynet\functions\options\makeDownloadOptions;
 use function Skynet\functions\options\makeGetEntryOptions;
@@ -1165,6 +1166,30 @@ class Skynet {
 	 */
 	public function setPortalAccountUrl( string $portalAccountUrl ): void {
 		$this->portalAccountUrl = $portalAccountUrl;
+	}
+
+	/**
+	 * @return string|null
+	 */
+	public function getSessionKey(): ?string {
+		return $this->sessionKey;
+	}
+
+	public function unpinSkylink( string $skylink ): bool {
+		if ( null == $this->sessionKey ) {
+			return false;
+		}
+
+		validateSkylinkString( 'skylink', $skylink, 'parameter' );
+
+		$response = $this->executeRequest( $this->buildRequestOptions( [
+			'url'          => $this->portalAccountUrl . '/user/uploads/' . stripSkylinkPrefix( $skylink ),
+			'endpointPath' => '',
+			'method'       => 'DELETE',
+			'headers'      => [ 'Referer' => $this->portalAccountUrl ],
+		] ) );
+
+		return $response->getStatusCode() === 204;
 	}
 
 	/**
