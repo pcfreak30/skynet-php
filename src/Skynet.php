@@ -1147,7 +1147,7 @@ class Skynet {
 	 * @param string $sessionKey
 	 *
 	 * @return void
-	 * @throws \GuzzleHttp\Exception\GuzzleException
+	 * @throws \Exception
 	 */
 	public function setPortalSession( string $sessionKey ): void {
 		$this->sessionKey = $sessionKey;
