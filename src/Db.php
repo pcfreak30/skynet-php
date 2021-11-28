@@ -110,6 +110,13 @@ class Db {
 	}
 
 	/**
+	 * @return \Skynet\Uint8Array|null
+	 */
+	public static function getEmptySkylink(): Uint8Array {
+		return clone self::$EMPTY_SKYLINK;
+	}
+
+	/**
 	 * @return \Skynet\Options\CustomClientOptions|null
 	 */
 	public function getOptions(): ?CustomClientOptions {
