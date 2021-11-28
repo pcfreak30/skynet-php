@@ -133,11 +133,20 @@ class MySky {
 			$seed = generateSeedPhrase();
 		}
 
-		$this->setSeed( $seed);
+		$this->setSeed( $seed );
 
 		$this->db                = $db;
 		$this->connectionOptions = $options;
 		$this->options           = makeClientOptions( [] );
+	}
+
+	public function setSeed( string $seed ): void {
+		[ $valid, $error ] = validatePhrase( $seed );
+		if ( ! $valid || ! $seed ) {
+			throw new \Exception( $error );
+		}
+
+		$this->key = KeyPairAndSeed::fromSeed( $seed );
 	}
 
 	/**
@@ -305,7 +314,6 @@ class MySky {
 		$this->setDataLink( $path, $dataLink, $options, true );
 	}
 
-
 	/**
 	 * @param string                                    $path
 	 * @param string                                    $dataLink
@@ -347,6 +355,74 @@ class MySky {
 
 	/**
 	 * @param string                                     $path
+	 * @param string                                     $dataLink
+	 * @param \Skynet\Options\CustomGetEntryOptions|null $options
+	 *
+	 * @return \Skynet\Types\RegistryEntry|null
+	 * @throws \Requests_Exception
+	 * @throws \SodiumException
+	 */
+	public function getEncryptedDataLink( string $entryLink, ?CustomGetEntryOptions $options = null ): ?RegistryEntry {
+		return $this->getDataLink( $entryLink, $options, true );
+	}
+
+	/**
+	 * @param string                                     $entryLink
+	 * @param \Skynet\Options\CustomGetEntryOptions|null $options
+	 * @param bool                                       $encrypted
+	 *
+	 * @return \Skynet\Types\RegistryEntry|null
+	 * @throws \Requests_Exception
+	 * @throws \SodiumException
+	 */
+	public function getDataLink( string $entryLink, ?CustomGetEntryOptions $options = null, $encrypted = false ): ?RegistryEntry {
+		$options = $this->buildGetEntryOptions( $options );
+
+		if ( $encrypted ) {
+			$entryLink = $this->getEncryptedFileSeed( $entryLink, false );
+		}
+
+		$dataKey   = $encrypted ? deriveEncryptedFileTweak( $entryLink ) : deriveDiscoverableFileTweak( $entryLink );
+		$publicKey = $this->getUserId();
+		$options->setHashedDataKeyHex( true );
+
+		[ 'entry' => $entry ] = $this->getRegistry()->getEntry( $publicKey, $dataKey, $options );
+
+		return $entry;
+	}
+
+	/**
+	 * @param \Skynet\Options\CustomGetEntryOptions|null $options
+	 * @param array                                      $funcOptions
+	 *
+	 * @return \Skynet\Options\CustomGetEntryOptions
+	 */
+	private function buildGetEntryOptions( CustomGetEntryOptions $options = null, array $funcOptions = [] ): CustomGetEntryOptions {
+		return $this->buildOptions( Registry::DEFAULT_GET_ENTRY_OPTIONS, CustomGetEntryOptions::class, $options, $funcOptions );
+	}
+
+	/**
+	 * @param string                                     $entryLink
+	 * @param \Skynet\Options\CustomGetEntryOptions|null $options
+	 *
+	 * @return string|null
+	 */
+	public function resolveSkylinkFromEncryptedEntryLink( string $entryLink, ?CustomGetEntryOptions $options = null ): ?string {
+		return $this->resolveSkylinkFromEntryLink( $entryLink, $options, true );
+	}
+
+	public function resolveSkylinkFromEntryLink( string $entryLink, ?CustomGetEntryOptions $options = null, $encrypted = false ): ?string {
+		$entry = $this->getDataLink( $entryLink, $options, $encrypted );
+
+		if ( null !== $entry ) {
+			return SiaSkylink::fromBytes( $entry->getData() )->toString();
+		}
+
+		return null;
+	}
+
+	/**
+	 * @param string                                     $path
 	 * @param string|null                                $userId
 	 * @param \Skynet\Options\CustomGetEntryOptions|null $options
 	 *
@@ -370,16 +446,6 @@ class MySky {
 		}
 
 		return new EntryData( [ 'data' => $data ] );
-	}
-
-	/**
-	 * @param \Skynet\Options\CustomGetEntryOptions|null $options
-	 * @param array                                      $funcOptions
-	 *
-	 * @return \Skynet\Options\CustomGetEntryOptions
-	 */
-	private function buildGetEntryOptions( CustomGetEntryOptions $options = null, array $funcOptions = [] ): CustomGetEntryOptions {
-		return $this->buildOptions( Registry::DEFAULT_GET_ENTRY_OPTIONS, CustomGetEntryOptions::class, $options, $funcOptions );
 	}
 
 	/**
@@ -534,12 +600,48 @@ class MySky {
 		$this->getSkynet()->setPortal( $portalUrl );
 	}
 
-	public function setSeed( string $seed ): void {
-		[ $valid, $error ] = validatePhrase( $seed );
-		if ( ! $valid || ! $seed ) {
-			throw new \Exception( $error );
+	/**
+	 * @param string                                    $path
+	 * @param \Skynet\Options\CustomSetJSONOptions|null $options
+	 *
+	 * @return void
+	 * @throws \Requests_Exception
+	 * @throws \SodiumException
+	 */
+	public function deleteJSONEncrypted( string $path, ?CustomSetJSONOptions $options = null ): void {
+		$this->deleteJSON( $path, $options, true );
+	}
+
+	/**
+	 * @param string                                    $path
+	 * @param \Skynet\Options\CustomSetJSONOptions|null $options
+	 * @param                                           $encrypted
+	 *
+	 * @return void
+	 * @throws \Requests_Exception
+	 * @throws \SodiumException
+	 */
+	public function deleteJSON( string $path, ?CustomSetJSONOptions $options = null, $encrypted = false ): void {
+		$options = $this->buildSetJSONOptions( $options );
+
+		$publicKey = $this->getUserId();
+
+		$dataKey = $path;
+
+		if ( $encrypted ) {
+			$dataKey = $this->getEncryptedFileSeed( $dataKey, false );
 		}
 
-		$this->key = KeyPairAndSeed::fromSeed( $seed );
+		$dataKey = $encrypted ? deriveEncryptedFileTweak( $dataKey ) : deriveDiscoverableFileTweak( $dataKey );
+		$options->setHashedDataKeyHex( true );
+
+		$getEntryOptions = extractOptions( $options, Registry::DEFAULT_GET_ENTRY_OPTIONS );
+
+		$entry     = $this->getDb()->getNextRegistryEntry( $publicKey, $dataKey, Db::getEmptySkylink(), makeGetEntryOptions( $getEntryOptions ) );
+		$signature = $this->signRegistryEntry( $entry, $path );
+
+		$setEntryOptions = extractOptions( $options, Registry::DEFAULT_SET_ENTRY_OPTIONS );
+
+		$this->getRegistry()->postSignedEntry( $publicKey, $entry, $signature, makeSetEntryOptions( $setEntryOptions ) );
 	}
 }
