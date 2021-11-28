@@ -51,7 +51,8 @@ class SiaSkylink {
 	public static function fromBytes( \Skynet\Uint8Array $data ) {
 		validateUint8ArrayLen( "data", $data, "parameter", RAW_SKYLINK_SIZE );
 
-		$bitfield = $data[0];
+		$bitfield = unpack( 'v', substr( $data->toString(), 0, 2 ) );
+		$bitfield = array_pop( $bitfield );
 
 		$merkleRoot = new Uint8Array( 32 );
 		$merkleRoot->set( array_slice( $data->getData(), 2 ) );
@@ -93,7 +94,7 @@ class SiaSkylink {
 	 */
 	public function toBytes(): Uint8Array {
 		$bytes = new Uint8Array( RAW_SKYLINK_SIZE );
-		$bytes->set( $this->bitfield );
+		$bytes->set( Uint8Array::from( pack( 'v', $this->bitfield ) ) );
 		$bytes->set( $this->merkleRoot, 2 );
 
 		return $bytes;
