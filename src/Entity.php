@@ -32,7 +32,6 @@ class Entity implements IteratorAggregate, ArrayAccess {
 				if ( method_exists( $this, $setter ) ) {
 					$this->$setter( $value );
 				} else {
-					/** @noinspection PhpReadonlyPropertyWrittenOutsideDeclarationScopeInspection */
 					$this->{$prop} = $value;
 				}
 			}
@@ -50,7 +49,20 @@ class Entity implements IteratorAggregate, ArrayAccess {
 	 * @return array
 	 */
 	public function toArray(): array {
-		return get_object_vars( $this );
+		$data = [];
+		foreach ( ( new \ReflectionClass( $this ) )->getProperties() as $property ) {
+			$prop   = $property->getName();
+			$getter = 'get' . ucfirst( $prop );
+			if ( isset( $this->{$prop} ) ) {
+				if ( method_exists( $this, $getter ) ) {
+					$data[ $prop ] = $this->{$getter}();
+				} else {
+					$data[ $prop ] = $this->{$prop};
+				}
+			}
+		}
+
+		return $data;
 	}
 
 	/**
