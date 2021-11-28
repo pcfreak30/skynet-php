@@ -311,7 +311,7 @@ class Skynet {
 		$options = mergeOptions(
 			$this->options->toArray(),
 			[
-				'method'       => 'GET',
+				'method'       => 'HEAD',
 				'url'          => $this->initialPortalUrl,
 				'endpointPath' => '/',
 			]
