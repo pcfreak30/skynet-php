@@ -849,7 +849,8 @@ class Skynet {
 			}
 		}
 
-		$requestOpts['multipart'] = [ $formDataItem ];
+		$requestOpts['multipart']       = [ $formDataItem ];
+		$requestOpts['_body_as_string'] = true;
 
 		return $this->executeRequest( $this->buildRequestOptions( $options->toArray(), [
 			'options'      => $requestOpts,
@@ -939,6 +940,7 @@ class Skynet {
 		if ( isset( $temp ) ) {
 			@unlink( $temp );
 		}
+
 		return $client->getClient()->head( $client->getUrl(), [
 			'headers' => [ 'Tus-Resumable' => Client::TUS_PROTOCOL_VERSION ],
 		] );
