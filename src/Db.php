@@ -4,15 +4,20 @@ namespace Skynet;
 
 use BN\BN;
 use Exception;
+use GuzzleHttp\Exception\ClientException;
+use GuzzleHttp\Promise\PromiseInterface;
+use GuzzleHttp\Promise\Utils;
 use Skynet\Options\CustomClientOptions;
 use Skynet\Options\CustomGetEntryOptions;
 use Skynet\Options\CustomGetJSONOptions;
 use Skynet\Options\CustomSetJSONOptions;
 use Skynet\Traits\BaseMethods;
 use Skynet\Types\File;
+use Skynet\Types\GetFileContentResponse;
 use Skynet\Types\JSONResponse;
 use Skynet\Types\RawBytesResponse;
 use Skynet\Types\RegistryEntry;
+use Skynet\Types\SignedRegistryEntry;
 use stdClass;
 use function Skynet\functions\formatting\decodeSkylinkBase64;
 use function Skynet\functions\formatting\formatSkylink;
@@ -200,18 +205,32 @@ class Db {
 	 * @throws \SodiumException
 	 */
 	public function getRegistryEntry( string $publicKey, string $dataKey, CustomGetJSONOptions $options ): ?RegistryEntry {
+		return $this->getRegistryEntryAsync( $publicKey, $dataKey, $options )->wait();
+	}
+
+	/**
+	 * @param string                               $publicKey
+	 * @param string                               $dataKey
+	 * @param \Skynet\Options\CustomGetJSONOptions $options
+	 *
+	 * @return \Skynet\Types\RegistryEntry|null
+	 * @throws \Requests_Exception
+	 * @throws \SodiumException
+	 */
+	public function getRegistryEntryAsync( string $publicKey, string $dataKey, CustomGetJSONOptions $options ): PromiseInterface {
 		if ( $options ) {
 			$options = extractOptions( $options, Registry::DEFAULT_GET_ENTRY_OPTIONS );
 		}
 
-		/** @var RegistryEntry $entry */
-		[ 'entry' => $entry ] = $this->registry->getEntry( $publicKey, $dataKey, makeGetEntryOptions( $options ) );
+		return $this->registry->getEntryAsync( $publicKey, $dataKey, makeGetEntryOptions( $options ) )->then( function ( SignedRegistryEntry $sentry ) {
+			[ 'entry' => $entry ] = $sentry;
 
-		if ( null === $entry || $entry->getData()->compare( self::$EMPTY_SKYLINK ) ) {
-			return null;
-		}
+			if ( null === $entry || $entry->getData()->compare( self::$EMPTY_SKYLINK ) ) {
+				return null;
+			}
 
-		return $entry;
+			return $entry;
+		} );
 	}
 
 	/**
@@ -279,7 +298,7 @@ class Db {
 	 * @throws \Requests_Exception
 	 * @throws \SodiumException
 	 */
-	public function getOrCreateRegistryEntry( string $publicKey, string $dataKey, $json, ?CustomSetJSONOptions $options = null ) {
+	public function getOrCreateRegistryEntry( string $publicKey, string $dataKey, $json, ?CustomSetJSONOptions $options = null ): array {
 		if ( ! is_array( $json ) && ! ( $json instanceof stdClass ) ) {
 			throwValidationError( 'json', $json, 'parameter', 'object or array' );
 		}
@@ -330,7 +349,7 @@ class Db {
 		} else {
 			$revision = $entry->getRevision()->add( new BN( 1 ) );
 		}
-
+		
 		if ( $revision->gt( Registry::getMaxRevision() ) ) {
 			throw new Exception( 'Current entry already has maximum allowed revision, could not update the entry' );
 		}
@@ -348,30 +367,42 @@ class Db {
 	 * @throws \SodiumException
 	 */
 	public function getRawBytes( string $publicKey, string $dataKey, ?CustomGetJSONOptions $options = null ): RawBytesResponse {
+		return $this->getRawBytesAsync( $publicKey, $dataKey, $options )->wait();
+	}
+
+	/**
+	 * @param string                                    $publicKey
+	 * @param string                                    $dataKey
+	 * @param \Skynet\Options\CustomGetJSONOptions|null $options
+	 *
+	 * @return \Skynet\Types\RawBytesResponse
+	 * @throws \Requests_Exception
+	 * @throws \SodiumException
+	 */
+	public function getRawBytesAsync( string $publicKey, string $dataKey, ?CustomGetJSONOptions $options = null ): PromiseInterface {
 		$options = $this->buildGetJSONOptions( $options );
 
-		$entry = $this->getRegistryEntry( $publicKey, $dataKey, $options );
+		return $this->getRegistryEntryAsync( $publicKey, $dataKey, $options )->then( function ( ?RegistryEntry $entry ) use ( $options ) {
+			if ( null === $entry || $entry->getData()->compare( self::$EMPTY_SKYLINK ) ) {
+				return new RawBytesResponse( [ 'data' => null, 'dataLink' => null ] );
+			}
 
-		if ( null === $entry ) {
-			return new RawBytesResponse( [ 'data' => null, 'dataLink' => null ] );
-		}
-		if ( $entry->getData()->compare( self::$EMPTY_SKYLINK ) ) {
-			$entry = null;
-		}
+			[ 'rawDataLink' => $rawDataLink, 'dataLink' => $dataLink ] = parseDataLink( $entry->getData(), false );
 
+			if ( checkCachedDataLink( $rawDataLink, $options->getCachedDataLink() ) ) {
+				return new RawBytesResponse( [ 'data' => null, 'dataLink' => $dataLink ] );
+			}
 
-		[ 'rawDataLink' => $rawDataLink, 'dataLink' => $dataLink ] = parseDataLink( $entry->getData(), false );
+			$downloadOptions                 = extractOptions( $options, Skynet::DEFAULT_DOWNLOAD_OPTIONS );
+			$downloadOptions['responseType'] = 'arraybuffer';
 
-		if ( checkCachedDataLink( $rawDataLink, $options->getCachedDataLink() ) ) {
-			return new RawBytesResponse( [ 'data' => null, 'dataLink' => $dataLink ] );
-		}
+			return $this->getSkynet()->getFileContentAsync( $dataLink, makeDownloadOptions( $downloadOptions ) )->then( function ( GetFileContentResponse $response ) use ( $dataLink ) {
+				[ 'data' => $buffer ] = $response;
 
-		$downloadOptions                 = extractOptions( $options, Skynet::DEFAULT_DOWNLOAD_OPTIONS );
-		$downloadOptions['responseType'] = 'arraybuffer';
+				return new RawBytesResponse( [ 'data' => Uint8Array::from( $buffer ), 'dataLink' => $dataLink ] );
+			} );
 
-		[ 'data' => $buffer ] = $this->getSkynet()->getFileContent( $dataLink, makeDownloadOptions( $downloadOptions ) );
-
-		return new RawBytesResponse( [ 'data' => Uint8Array::from( $buffer ), 'dataLink' => $dataLink ] );
+		} );
 	}
 
 	/**
@@ -385,6 +416,20 @@ class Db {
 	 * @throws \SodiumException
 	 */
 	public function getOrCreateRawBytesRegistryEntry( string $publicKey, string $dataKey, Uint8Array $data, ?CustomSetJSONOptions $options = null ): RegistryEntry {
+		return $this->getOrCreateRawBytesRegistryEntryAsync( $publicKey, $dataKey, $data, $options )->wait();
+	}
+
+	/**
+	 * @param string                                    $publicKey
+	 * @param string                                    $dataKey
+	 * @param \Skynet\Uint8Array                        $data
+	 * @param \Skynet\Options\CustomSetJSONOptions|null $options
+	 *
+	 * @return \Skynet\Types\RegistryEntry
+	 * @throws \Requests_Exception
+	 * @throws \SodiumException
+	 */
+	public function getOrCreateRawBytesRegistryEntryAsync( string $publicKey, string $dataKey, Uint8Array $data, ?CustomSetJSONOptions $options = null ): PromiseInterface {
 		$options = $this->buildSetJSONOptions( $options );
 
 		$dataKeyHex = $dataKey;
@@ -396,18 +441,22 @@ class Db {
 
 		$uploadOptions = extractOptions( $options, Skynet::DEFAULT_UPLOAD_OPTIONS );
 
-		$skyfile = $this->getSkynet()->uploadFile( $file, makeUploadOptions( $uploadOptions ) );
+		$skyfilePromise = $this->getSkynet()->uploadFileAsync( $file, makeUploadOptions( $uploadOptions ) );
 
-		$getEntryOptions = extractOptions( $options, Registry::DEFAULT_GET_ENTRY_OPTIONS );
-		$signedEntry     = $this->registry->getEntry( $publicKey, $dataKey, makeGetEntryOptions( $getEntryOptions ) );
+		$getEntryOptions    = extractOptions( $options, Registry::DEFAULT_GET_ENTRY_OPTIONS );
+		$signedEntryPromise = $this->registry->getEntryAsync( $publicKey, $dataKey, makeGetEntryOptions( $getEntryOptions ) );
 
-		$revision = $this->getNextRevisionFromEntry( $signedEntry->getEntry() );
+		return Utils::all( [ $skyfilePromise, $signedEntryPromise ] )->then( function ( $promises ) use ( $dataKey ) {
+			[ $skyfile, $signedEntry ] = $promises;
 
-		$dataLink    = trimUriPrefix( $skyfile->getSkylink(), URI_SKYNET_PREFIX );
-		$rawDataLink = decodeSkylinkBase64( $dataLink );
-		validateUint8ArrayLen( 'rawDataLink', $rawDataLink, 'skylink byte array', RAW_SKYLINK_SIZE );
+			$revision = $this->getNextRevisionFromEntry( $signedEntry->getEntry() );
 
-		return new RegistryEntry( $dataKey, $rawDataLink, $revision );
+			$dataLink    = trimUriPrefix( $skyfile->getSkylink(), URI_SKYNET_PREFIX );
+			$rawDataLink = decodeSkylinkBase64( $dataLink );
+			validateUint8ArrayLen( 'rawDataLink', $rawDataLink, 'skylink byte array', RAW_SKYLINK_SIZE );
+
+			return new RegistryEntry( $dataKey, $rawDataLink, $revision );
+		} );
 	}
 
 	/**
@@ -442,13 +491,7 @@ class Db {
 	 * @throws \Requests_Exception
 	 * @throws \SodiumException
 	 */
-	public function getNextRegistryEntry( string $publicKey, string $dataKey, Uint8Array $data, CustomGetEntryOptions $options = null ) {
-		$options = $this->buildGetEntryOptions( $options );
-
-		$signedEntry = $this->registry->getEntry( $publicKey, $dataKey, $options );
-		$revision    = $this->getNextRevisionFromEntry( $signedEntry->getEntry() );
-
-		return new RegistryEntry( $dataKey, $data, $revision );
+	public function getNextRegistryEntry( string $publicKey, string $dataKey, Uint8Array $data, CustomGetEntryOptions $options = null ): RegistryEntry {
 	}
 
 	/**
@@ -462,6 +505,21 @@ class Db {
 	 * @throws \SodiumException
 	 */
 	public function setDataLink( string $privateKey, string $dataKey, string $dataLink, ?CustomSetJSONOptions $options = null ): void {
+		$this->setDataLinkAsync( $privateKey, $dataKey, $dataLink, $options )->wait();
+	}
+
+
+	/**
+	 * @param string                                    $privateKey
+	 * @param string                                    $dataKey
+	 * @param string                                    $dataLink
+	 * @param \Skynet\Options\CustomSetJSONOptions|null $options
+	 *
+	 * @return \GuzzleHttp\Promise\PromiseInterface
+	 * @throws \Requests_Exception
+	 * @throws \SodiumException
+	 */
+	public function setDataLinkAsync( string $privateKey, string $dataKey, string $dataLink, ?CustomSetJSONOptions $options = null ): PromiseInterface {
 		validateHexString( 'privateKey', $privateKey, 'parameter' );
 
 		$options = $this->buildSetJSONOptions( $options );
@@ -469,9 +527,38 @@ class Db {
 		$publicKey = toHexString( crypto_sign_publickey_from_secretkey( hexToString( $privateKey ) ) );
 
 		$getEntryOptions = extractOptions( $options, Registry::DEFAULT_GET_ENTRY_OPTIONS );
-		$entry           = $this->getNextRegistryEntry( $publicKey, $dataKey, decodeSkylink( $dataLink ), makeGetEntryOptions( $getEntryOptions ) );
 
-		$setEntryOptions = extractOptions( $options, Registry::DEFAULT_SET_ENTRY_OPTIONS );
-		$this->registry->setEntry( $privateKey, $entry, makeSetEntryOptions( $setEntryOptions ) );
+		return $this->getNextRegistryEntryAsync( $publicKey, $dataKey, decodeSkylink( $dataLink ), makeGetEntryOptions( $getEntryOptions ) )->then( function ( RegistryEntry $entry ) use ( $privateKey, $dataKey, $dataLink, $options ) {
+			$setEntryOptions = extractOptions( $options, Registry::DEFAULT_SET_ENTRY_OPTIONS );
+
+			return $this->registry->setEntryAsync( $privateKey, $entry, makeSetEntryOptions( $setEntryOptions ) )->otherwise( function ( $e ) use ( $privateKey, $dataKey, $dataLink, $options ) {
+				if ( $e instanceof ClientException ) {
+					if ( 400 !== $e->getResponse()->getStatusCode() ) {
+						throw $e;
+					}
+				}
+				return $this->setDataLinkAsync( $privateKey, $dataKey, $dataLink, $options );
+			} );
+		} );
+	}
+
+	/**
+	 * @param string                                     $publicKey
+	 * @param string                                     $dataKey
+	 * @param \Skynet\Uint8Array                         $data
+	 * @param \Skynet\Options\CustomGetEntryOptions|null $options
+	 *
+	 * @return \GuzzleHttp\Promise\PromiseInterface
+	 * @throws \Requests_Exception
+	 * @throws \SodiumException
+	 */
+	public function getNextRegistryEntryAsync( string $publicKey, string $dataKey, Uint8Array $data, CustomGetEntryOptions $options = null ): PromiseInterface {
+		$options = $this->buildGetEntryOptions( $options );
+
+		return $this->registry->getEntryAsync( $publicKey, $dataKey, $options )->then( function ( SignedRegistryEntry $signedEntry ) use ( $data, $dataKey ) {
+			$revision = $this->getNextRevisionFromEntry( $signedEntry->getEntry() );
+
+			return new RegistryEntry( $dataKey, $data, $revision );
+		} );
 	}
 }

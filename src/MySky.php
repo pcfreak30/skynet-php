@@ -2,6 +2,9 @@
 
 namespace Skynet;
 
+use GuzzleHttp\Exception\ClientException;
+use GuzzleHttp\Promise\FulfilledPromise;
+use GuzzleHttp\Promise\PromiseInterface;
 use Skynet\Options\CustomConnectorOptions;
 use Skynet\Options\CustomGetEntryOptions;
 use Skynet\Options\CustomGetJSONOptions;
@@ -12,7 +15,9 @@ use Skynet\Types\EncryptedJSONResponse;
 use Skynet\Types\EntryData;
 use Skynet\Types\JSONResponse;
 use Skynet\Types\KeyPairAndSeed;
+use Skynet\Types\RawBytesResponse;
 use Skynet\Types\RegistryEntry;
+use Skynet\Types\SignedRegistryEntry;
 use function Skynet\functions\encoding\encodeSkylinkBase64;
 use function Skynet\functions\encrypted_files\decryptJSONFile;
 use function Skynet\functions\encrypted_files\deriveEncryptedFileKeyEntropy;
@@ -35,6 +40,7 @@ use function Skynet\functions\options\makeSetEntryOptions;
 use function Skynet\functions\options\mergeOptions;
 use function Skynet\functions\registry\getEntryLink;
 use function Skynet\functions\registry\signEntry;
+use function Skynet\functions\sia\decodeSkylink;
 use function Skynet\functions\tweak\deriveDiscoverableFileTweak;
 use function Skynet\functions\validation\throwValidationError;
 
@@ -235,6 +241,10 @@ class MySky {
 		return getEntryLink( $publicKey, $dataKey, $options );
 	}
 
+	public function setJSON( string $path, $json, ?CustomSetJSONOptions $options = null ): JSONResponse {
+		return $this->setJSONAsync( $path, $options )->wait();
+	}
+
 	/**
 	 * @param string                                    $path
 	 * @param \stdClass|array                           $json
@@ -244,25 +254,70 @@ class MySky {
 	 * @return \Skynet\Types\JSONResponse
 	 * @throws \Requests_Exception
 	 */
-	public function setJSON( string $path, $json, ?CustomSetJSONOptions $options = null ): JSONResponse {
+	public function setJSONAsync( string $path, $json, ?CustomSetJSONOptions $options = null, bool $encrypted = false ): PromiseInterface {
 		if ( ! is_array( $json ) && ! ( $json instanceof \stdClass ) ) {
 			throwValidationError( 'json', $json, 'parameter', 'object or array' );
 		}
 		$json    = arrayToObject( $json );
+		$data    = $json;
 		$options = $this->buildSetJSONOptions( $options );
 
 		$publicKey = $this->getUserId();
-		$dataKey   = deriveDiscoverableFileTweak( $path );
 
+		if ( $encrypted ) {
+			$pathSeed      = $this->getEncryptedFileSeed( $path, false );
+			$encryptionKey = deriveEncryptedFileKeyEntropy( $pathSeed );
+			$data          = encryptJSONFile( $data, makeEncryptedFileMetadata( [ 'version' => self::ENCRYPTED_JSON_RESPONSE_VERSION ] ), $encryptionKey );
+		}
+
+		$dataKey = $encrypted ? deriveEncryptedFileTweak( $pathSeed ) : deriveDiscoverableFileTweak( $path );
 		$options->setHashedDataKeyHex( true );
 
-		[ $entry, $dataLink ] = $this->db->getOrCreateRegistryEntry( $publicKey, $dataKey, $json, $options );
-		$signature = $this->signRegistryEntry( $entry, $path );
+		return $this->db->{$encrypted ? 'getOrCreateRawBytesRegistryEntryAsync' : 'getOrCreateRegistryEntryAsync'}( $publicKey, $dataKey, $data, $options )->then( function ( $entry ) use ( $publicKey, $options, $path, &$json, $encrypted, $dataKey ) {
+			$setEntryOptions = extractOptions( $options, Registry::DEFAULT_SET_ENTRY_OPTIONS );
+			$getEntryOptions = extractOptions( $options, Registry::DEFAULT_GET_ENTRY_OPTIONS );
 
-		$setEntryOptions = extractOptions( $options, Registry::DEFAULT_SET_ENTRY_OPTIONS );
-		$this->getRegistry()->postSignedEntry( $publicKey, $entry, $signature, makeSetEntryOptions( $setEntryOptions ) );
+			$process = function ( bool $recomputeRegistry ) use ( $publicKey, $entry, &$setEntryOptions, &$process, $encrypted, &$json, $path, $dataKey, $getEntryOptions ) {
+				/* @var RegistryEntry $entry */
+				$promise = new FulfilledPromise( null );
+				if ( $recomputeRegistry ) {
+					$promise = $this->getDb()->getNextRegistryEntryAsync( $publicKey, $dataKey, $entry->getData(), makeGetEntryOptions( $getEntryOptions ) );
+				}
 
-		return new JSONResponse( [ 'data' => $json, 'dataLink' => $dataLink ] );
+				return $promise->then( function ( ?RegistryEntry $entry2 ) use ( &$process, &$json, $entry, $path, $publicKey, &$setEntryOptions, $encrypted ) {
+					/* @var RegistryEntry $entry */
+					if ( $entry2 ) {
+						$entry2->setData( $entry->getData() );
+						$entry = $entry2;
+					}
+					$signature = $this->signRegistryEntry( $entry, $path );
+
+					return $this->getRegistry()->postSignedEntryAsync( $publicKey, $entry, $signature, makeSetEntryOptions( $setEntryOptions ) )->otherwise( function ( $e ) use ( &$process ) {
+						if ( $e instanceof ClientException ) {
+							if ( 400 !== $e->getResponse()->getStatusCode() ) {
+								throw $e;
+							}
+						}
+
+						return $process( true );
+					} )->then( function () use ( $entry, $encrypted, &$json ) {
+						$dataLink = formatSkylink( encodeSkylinkBase64( $entry->getData() ) );
+						if ( $encrypted ) {
+							return new EncryptedJSONResponse( [
+								'data'     => $json,
+								'dataLink' => $dataLink,
+							] );
+						}
+
+						return new JSONResponse( [ 'data' => $json, 'dataLink' => $dataLink ] );
+					} );
+				} );
+
+
+			};
+
+			return $process( false );
+		} );
 	}
 
 	/**
@@ -273,6 +328,29 @@ class MySky {
 	 */
 	private function buildSetJSONOptions( CustomSetJSONOptions $options = null, array $funcOptions = [] ): CustomSetJSONOptions {
 		return $this->buildOptions( Db::DEFAULT_GET_JSON_OPTIONS, CustomSetJSONOptions::class, $options, $funcOptions );
+	}
+
+	/**
+	 * @param string $path
+	 * @param bool   $isDirectory
+	 *
+	 * @return string
+	 * @throws \Exception
+	 */
+	public function getEncryptedFileSeed( string $path, bool $isDirectory ): string {
+		$data = sha512( self::SALT_ENCRYPTED_PATH_SEED ) . hash( 'sha512', $this->key->getSeed() );
+		$hash = sha512( $data );
+
+		$rootPathSeed = toHexString( substr( $hash, 0, self::ENCRYPTION_PATH_SEED_LENGTH ) );
+
+		return deriveEncryptedFileSeed( $rootPathSeed, $path, $isDirectory );
+	}
+
+	/**
+	 * @return \Skynet\Db
+	 */
+	public function getDb(): Db {
+		return $this->db;
 	}
 
 	/**
@@ -295,10 +373,16 @@ class MySky {
 	}
 
 	/**
-	 * @return \Skynet\Db
+	 * @param string                                    $path
+	 * @param string                                    $dataLink
+	 * @param \Skynet\Options\CustomSetJSONOptions|null $options
+	 *
+	 * @return void
+	 * @throws \Requests_Exception
+	 * @throws \SodiumException
 	 */
-	public function getDb(): Db {
-		return $this->db;
+	public function setEncryptedDataLink( string $path, string $dataLink, ?CustomSetJSONOptions $options = null ): void {
+		$this->setEncryptedDataLinkASync( $path, $dataLink, $options )->wait();
 	}
 
 	/**
@@ -310,8 +394,31 @@ class MySky {
 	 * @throws \Requests_Exception
 	 * @throws \SodiumException
 	 */
-	public function setEncryptedDataLink( string $path, string $dataLink, ?CustomSetJSONOptions $options = null ): void {
-		$this->setDataLink( $path, $dataLink, $options, true );
+	public function setEncryptedDataLinkASync( string $path, string $dataLink, ?CustomSetJSONOptions $options = null ): PromiseInterface {
+		return $this->setDataLinkAsync( $path, $dataLink, $options, true );
+	}
+
+	/**
+	 * @param string                                    $path
+	 * @param string                                    $dataLink
+	 * @param \Skynet\Options\CustomSetJSONOptions|null $options
+	 *
+	 * @return PromiseInterface
+	 * @throws \Requests_Exception
+	 * @throws \SodiumException
+	 */
+	public function setDataLinkAsync( string $path, string $dataLink, ?CustomSetJSONOptions $options = null, $encrypted = false ): PromiseInterface {
+		$options = $this->buildSetJSONOptions( $options );
+
+		if ( $encrypted ) {
+			$path = $this->getEncryptedFileSeed( $path, false );
+		}
+
+		$dataKey    = $encrypted ? deriveEncryptedFileTweak( $path ) : deriveDiscoverableFileTweak( $path );
+		$privateKey = $this->key->getPrivateKey();
+		$options->setHashedDataKeyHex( true );
+
+		return $this->getDb()->setDataLinkAsync( $privateKey, $dataKey, $dataLink, $options );
 	}
 
 	/**
@@ -324,33 +431,7 @@ class MySky {
 	 * @throws \SodiumException
 	 */
 	public function setDataLink( string $path, string $dataLink, ?CustomSetJSONOptions $options = null, $encrypted = false ): void {
-		$options = $this->buildSetJSONOptions( $options );
-
-		if ( $encrypted ) {
-			$path = $this->getEncryptedFileSeed( $path, false );
-		}
-
-		$dataKey    = $encrypted ? deriveEncryptedFileTweak( $path ) : deriveDiscoverableFileTweak( $path );
-		$privateKey = $this->key->getPrivateKey();
-		$options->setHashedDataKeyHex( true );
-
-		$this->getDb()->setDataLink( $privateKey, $dataKey, $dataLink, $options );
-	}
-
-	/**
-	 * @param string $path
-	 * @param bool   $isDirectory
-	 *
-	 * @return string
-	 * @throws \Exception
-	 */
-	public function getEncryptedFileSeed( string $path, bool $isDirectory ): string {
-		$data = sha512( self::SALT_ENCRYPTED_PATH_SEED ) . hash( 'sha512', $this->key->getSeed() );
-		$hash = sha512( $data );
-
-		$rootPathSeed = toHexString( substr( $hash, 0, self::ENCRYPTION_PATH_SEED_LENGTH ) );
-
-		return deriveEncryptedFileSeed( $rootPathSeed, $path, $isDirectory );
+		$this->setDataLinkAsync( $path, $dataLink, $options, $encrypted )->wait();
 	}
 
 	/**
@@ -363,7 +444,19 @@ class MySky {
 	 * @throws \SodiumException
 	 */
 	public function getEncryptedDataLink( string $entryLink, ?CustomGetEntryOptions $options = null ): ?RegistryEntry {
-		return $this->getDataLink( $entryLink, $options, true );
+		return $this->getEncryptedDataLinkAsync( $entryLink, $options )->wait();
+	}
+
+	/**
+	 * @param string                                     $entryLink
+	 * @param \Skynet\Options\CustomGetEntryOptions|null $options
+	 *
+	 * @return \GuzzleHttp\Promise\PromiseInterface
+	 * @throws \Requests_Exception
+	 * @throws \SodiumException
+	 */
+	public function getEncryptedDataLinkAsync( string $entryLink, ?CustomGetEntryOptions $options = null ): PromiseInterface {
+		return $this->getDataLinkAsync( $entryLink, $options, true );
 	}
 
 	/**
@@ -371,11 +464,11 @@ class MySky {
 	 * @param \Skynet\Options\CustomGetEntryOptions|null $options
 	 * @param bool                                       $encrypted
 	 *
-	 * @return \Skynet\Types\RegistryEntry|null
+	 * @return \GuzzleHttp\Promise\PromiseInterface
 	 * @throws \Requests_Exception
 	 * @throws \SodiumException
 	 */
-	public function getDataLink( string $entryLink, ?CustomGetEntryOptions $options = null, $encrypted = false ): ?RegistryEntry {
+	public function getDataLinkAsync( string $entryLink, ?CustomGetEntryOptions $options = null, $encrypted = false ): PromiseInterface {
 		$options = $this->buildGetEntryOptions( $options );
 
 		if ( $encrypted ) {
@@ -386,9 +479,9 @@ class MySky {
 		$publicKey = $this->getUserId();
 		$options->setHashedDataKeyHex( true );
 
-		[ 'entry' => $entry ] = $this->getRegistry()->getEntry( $publicKey, $dataKey, $options );
-
-		return $entry;
+		return $this->getRegistry()->getEntryAsync( $publicKey, $dataKey, $options )->then( function ( SignedRegistryEntry $entry ) {
+			return $entry->getEntry();
+		} );
 	}
 
 	/**
@@ -404,21 +497,34 @@ class MySky {
 	/**
 	 * @param string                                     $entryLink
 	 * @param \Skynet\Options\CustomGetEntryOptions|null $options
+	 * @param bool                                       $encrypted
 	 *
-	 * @return string|null
+	 * @return \Skynet\Types\RegistryEntry|null
+	 * @throws \Requests_Exception
+	 * @throws \SodiumException
 	 */
-	public function resolveSkylinkFromEncryptedEntryLink( string $entryLink, ?CustomGetEntryOptions $options = null ): ?string {
-		return $this->resolveSkylinkFromEntryLink( $entryLink, $options, true );
+	public function getDataLink( string $entryLink, ?CustomGetEntryOptions $options = null, $encrypted = false ): ?RegistryEntry {
+		return $this->getDataLinkAsync( $entryLink, $options, $encrypted )->wait();
 	}
 
-	public function resolveSkylinkFromEntryLink( string $entryLink, ?CustomGetEntryOptions $options = null, $encrypted = false ): ?string {
-		$entry = $this->getDataLink( $entryLink, $options, $encrypted );
+	/**
+	 * @param string                                     $entryLink
+	 * @param \Skynet\Options\CustomGetEntryOptions|null $options
+	 *
+	 * @return \GuzzleHttp\Promise\PromiseInterface
+	 */
+	public function resolveSkylinkFromEncryptedEntryLinkAsync( string $entryLink, ?CustomGetEntryOptions $options = null ): PromiseInterface {
+		return $this->resolveSkylinkFromEntryLinkAsync( $entryLink, $options, true );
+	}
 
-		if ( null !== $entry ) {
-			return SiaSkylink::fromBytes( $entry->getData() )->toString();
-		}
+	public function resolveSkylinkFromEntryLinkAsync( string $entryLink, ?CustomGetEntryOptions $options = null, $encrypted = false ): PromiseInterface {
+		return $this->getDataLinkAsync( $entryLink, $options, $encrypted )->then( function ( ?RegistryEntry $entry ) {
+			if ( null !== $entry ) {
+				return SiaSkylink::fromBytes( $entry->getData() )->toString();
+			}
 
-		return null;
+			return null;
+		} );
 	}
 
 	/**
@@ -477,7 +583,7 @@ class MySky {
 		$signature = $this->signRegistryEntry( $entry, $path );
 
 		$setEntryOptions = extractOptions( $options, Registry::DEFAULT_SET_ENTRY_OPTIONS );
-		$this->getRegistry()->postSignedEntry( $publicKey, $entry, $signature, makeSetEntryOptions( $setEntryOptions ) );
+		$this->getRegistry()->postSignedEntryAsync( $publicKey, $entry, $signature, makeSetEntryOptions( $setEntryOptions ) )->wait();
 
 		return new EntryData( [ 'data' => $entry->getData() ] );
 	}
@@ -502,6 +608,19 @@ class MySky {
 	 * @throws \Exception
 	 */
 	public function getJSONEncrypted( string $path, ?string $userId = null, bool $pathHashed = false, ?CustomGetJSONOptions $options = null ): EncryptedJSONResponse {
+		return $this->getJSONEncryptedAsync( $path, $userId, $pathHashed, $options )->wait();
+	}
+
+	/**
+	 * @param string                                    $path
+	 * @param string|null                               $userId
+	 * @param bool                                      $pathHashed
+	 * @param \Skynet\Options\CustomGetJSONOptions|null $options
+	 *
+	 * @return \Skynet\Types\EncryptedJSONResponse
+	 * @throws \Exception
+	 */
+	public function getJSONEncryptedAsync( string $path, ?string $userId = null, bool $pathHashed = false, ?CustomGetJSONOptions $options = null ): PromiseInterface {
 		$options = $this->buildGetJSONOptions( $options );
 		$options->setHashedDataKeyHex( true );
 
@@ -509,16 +628,23 @@ class MySky {
 		$pathSeed  = $pathHashed ? $path : $this->getEncryptedFileSeed( $path, false );
 
 		$dataKey = deriveEncryptedFileTweak( $pathSeed );
-		[ 'data' => $data, 'dataLink' => $dataLink ] = $this->db->getRawBytes( $publicKey, $dataKey, $options );
 
-		if ( null === $data ) {
-			return new EncryptedJSONResponse( [ 'data' => null ] );
-		}
+		return $this->db->getRawBytesAsync( $publicKey, $dataKey, $options )->then( function ( RawBytesResponse $response ) use ( $pathSeed ) {
+			[ 'data' => $data, 'dataLink' => $dataLink ] = $response;
 
-		$key  = deriveEncryptedFileKeyEntropy( $pathSeed );
-		$json = decryptJSONFile( $data, $key );
+			if ( null === $data ) {
+				return new EncryptedJSONResponse( [ 'data' => null ] );
+			}
 
-		return new EncryptedJSONResponse( [ 'data' => $json, 'dataLink' => $dataLink ] );
+			$key  = deriveEncryptedFileKeyEntropy( $pathSeed );
+			$json = decryptJSONFile( $data, $key );
+
+			return new EncryptedJSONResponse( [ 'data' => $json, 'dataLink' => $dataLink ] );
+		} );
+	}
+
+	public function setJSONEncrypted( string $path, $json, CustomSetJSONOptions $options = null ): EncryptedJSONResponse {
+		return $this->setJSONEncryptedAsync( $path, $json, $options )->wait();
 	}
 
 	/**
@@ -529,36 +655,10 @@ class MySky {
 	 * @return \Skynet\Types\EncryptedJSONResponse
 	 * @throws \GuzzleHttp\Exception\GuzzleException
 	 */
-	public function setJSONEncrypted( string $path, $json, CustomSetJSONOptions $options = null ): EncryptedJSONResponse {
-		if ( ! is_array( $json ) && ! ( $json instanceof \stdClass ) ) {
-			throwValidationError( 'json', $json, 'parameter', 'object or array' );
-		}
-
-		$json = arrayToObject( $json );
 
 
-		$options = $this->buildSetJSONOptions( $options );
-
-		$publicKey = $this->getUserId();
-		$pathSeed  = $this->getEncryptedFileSeed( $path, false );
-
-		$dataKey = deriveEncryptedFileTweak( $pathSeed );
-		$options->setHashedDataKeyHex( true );
-		$encryptionKey = deriveEncryptedFileKeyEntropy( $pathSeed );
-
-		$data = encryptJSONFile( $json, makeEncryptedFileMetadata( [ 'version' => self::ENCRYPTED_JSON_RESPONSE_VERSION ] ), $encryptionKey );
-
-		$entry = $this->db->getOrCreateRawBytesRegistryEntry( $publicKey, $dataKey, $data, $options );
-
-		$signature = $this->signEncryptedRegistryEntry( $entry, $path );
-
-		$setEntryOptions = extractOptions( $options, Registry::DEFAULT_SET_ENTRY_OPTIONS );
-		$this->getRegistry()->postSignedEntry( $publicKey, $entry, $signature, makeSetEntryOptions( $setEntryOptions ) );
-
-		return new EncryptedJSONResponse( [
-			'data'     => $json,
-			'dataLink' => formatSkylink( encodeSkylinkBase64( $entry->getData() ) ),
-		] );
+	public function setJSONEncryptedAsync( string $path, $json, CustomSetJSONOptions $options = null ): PromiseInterface {
+		return $this->setJSONAsync( $path, $json, $options, true );
 	}
 
 	/**
@@ -609,7 +709,7 @@ class MySky {
 	 * @throws \SodiumException
 	 */
 	public function deleteJSONEncrypted( string $path, ?CustomSetJSONOptions $options = null ): void {
-		$this->deleteJSON( $path, $options, true );
+		$this->deleteJSONEncryptedAsync( $path, $options, true )->wait();
 	}
 
 	/**
@@ -621,27 +721,20 @@ class MySky {
 	 * @throws \Requests_Exception
 	 * @throws \SodiumException
 	 */
-	public function deleteJSON( string $path, ?CustomSetJSONOptions $options = null, $encrypted = false ): void {
-		$options = $this->buildSetJSONOptions( $options );
+	public function deleteJSONEncryptedAsync( string $path, ?CustomSetJSONOptions $options = null ): PromiseInterface {
+		return $this->deleteJSONAsync( $path, $options, true );
+	}
 
-		$publicKey = $this->getUserId();
-
-		$dataKey = $path;
-
-		if ( $encrypted ) {
-			$dataKey = $this->getEncryptedFileSeed( $dataKey, false );
-		}
-
-		$dataKey = $encrypted ? deriveEncryptedFileTweak( $dataKey ) : deriveDiscoverableFileTweak( $dataKey );
-		$options->setHashedDataKeyHex( true );
-
-		$getEntryOptions = extractOptions( $options, Registry::DEFAULT_GET_ENTRY_OPTIONS );
-
-		$entry     = $this->getDb()->getNextRegistryEntry( $publicKey, $dataKey, Db::getEmptySkylink(), makeGetEntryOptions( $getEntryOptions ) );
-		$signature = $this->signRegistryEntry( $entry, $path );
-
-		$setEntryOptions = extractOptions( $options, Registry::DEFAULT_SET_ENTRY_OPTIONS );
-
-		$this->getRegistry()->postSignedEntry( $publicKey, $entry, $signature, makeSetEntryOptions( $setEntryOptions ) );
+	/**
+	 * @param string                                    $path
+	 * @param \Skynet\Options\CustomSetJSONOptions|null $options
+	 * @param                                           $encrypted
+	 *
+	 * @return void
+	 * @throws \Requests_Exception
+	 * @throws \SodiumException
+	 */
+	public function deleteJSONAsync( string $path, ?CustomSetJSONOptions $options = null, $encrypted = false ): PromiseInterface {
+		return $this->setDataLinkAsync( $path, encodeSkylinkBase64( Db::getEmptySkylink() ), $options, $encrypted );
 	}
 }

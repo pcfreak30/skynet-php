@@ -5,13 +5,12 @@ namespace Skynet;
 use BN\BN;
 use Exception;
 use GuzzleHttp\Exception\BadResponseException;
-use GuzzleHttp\Exception\RequestException;
+use GuzzleHttp\Promise\PromiseInterface;
 use GuzzleHttp\Psr7\Request;
-use Requests_Exception_HTTP;
 use Skynet\Options\CustomClientOptions;
 use Skynet\Options\CustomGetEntryOptions;
-use Skynet\Traits\BaseMethods;
 use Skynet\Options\CustomSetEntryOptions;
+use Skynet\Traits\BaseMethods;
 use Skynet\Types\RegistryEntry;
 use Skynet\Types\SignedRegistryEntry;
 use function Skynet\functions\crypto\hashDataKey;
@@ -79,7 +78,7 @@ class Registry {
 	 */
 	public function __construct( Skynet $skynet = null, ?CustomClientOptions $options = null ) {
 		if ( null === $skynet ) {
-			$skynet = new Skynet();
+			$skynet = new Skynet( null, $options );
 		}
 
 		self::getMaxRevision();
@@ -122,74 +121,86 @@ class Registry {
 	 * @throws \SodiumException
 	 */
 	public function getEntry( string $publicKey, string $dataKey, ?CustomGetEntryOptions $options = null ): SignedRegistryEntry {
+		return $this->getEntryAsync( $publicKey, $dataKey, $options )->wait();
+	}
+
+	/**
+	 * @param string                                     $publicKey
+	 * @param string                                     $dataKey
+	 * @param \Skynet\Options\CustomGetEntryOptions|null $options
+	 *
+	 * @return \GuzzleHttp\Promise\PromiseInterface
+	 */
+	public function getEntryAsync( string $publicKey, string $dataKey, ?CustomGetEntryOptions $options = null ): PromiseInterface {
 		$options = $this->buildGetEntryOptions( $options );
 
 		$url = $this->getEntryUrl( $publicKey, $dataKey, $options );
 
-		/** @var \GuzzleHttp\Psr7\Response $response */
-		$response = null;
-
-		try {
-			$response = $this->executeRequest( $this->buildRequestOptions( mergeOptions(
-				$options,
-				[
-					'endpointPath' => $options->getEndpointGetEntry(),
-					'url'          => $url,
-					'method'       => 'GET',
-
-				],
-			) ) );
-			/** @noinspection NotOptimalIfConditionsInspection */
-			if ( ! ( $response->getStatusCode() >= 200 && $response->getStatusCode() < 300 ) ) {
-				throw new BadResponseException( '', new Request( 'GET', $url ), $response );
-			}
-
-		} catch ( BadResponseException $e ) {
-			if ( 404 === $e->getResponse()->getStatusCode() ) {
-				return new SignedRegistryEntry(  );
-			}
-			throw new Exception( sprintf( 'Request failed with status code %d', $e->getResponse()->getStatusCode() ) );
-		}
-
-		$body = $response->getBody()->getContents();
-
-		try {
-			$body = preg_replace( REGEX_REVISION_NO_QUOTES, '"revision":"$1"', $body );
-			$body = json_decode( $body );
-
-			validateString( "response->body->data", $body->data ?? null, "entry response field" );
-			validateString( "response->body->revision", $body->revision ?? null, "entry response field" );
-			validateString( "response->body->signature", $body->signature ?? null, "entry response field" );
-		} catch ( Exception $e ) {
-			throw new Exception( sprintf( 'Did not get a complete entry response despite a successful request. Please try again and report this issue to the devs if it persists. Error: %s', $e->getMessage() ) );
-		}
-
-		$revision  = new BN( $body->revision );
-		$signature = hexToUint8Array( $body->signature );
-
-		$data = new Uint8Array();
-		if ( $body->data ) {
-			$data = hexToUint8Array( $body->data );
-		}
-
-		$signedEntry = new SignedRegistryEntry(
+		return $this->executeRequest( $this->buildRequestOptions( mergeOptions(
+			$options,
 			[
-				'entry'     => new RegistryEntry( $dataKey, $data, $revision ),
-				'signature' => $signature,
-			] );
+				'endpointPath' => $options->getEndpointGetEntry(),
+				'url'          => $url,
+				'method'       => 'GET',
 
-		$signatureBytes = $signedEntry->getSignature();
-		$publicKeyBytes = hexToUint8Array( $publicKey );
+			],
+		) ) )->otherwise( function ( $e ) {
+			if ( $e instanceof BadResponseException ) {
+				if ( 404 === $e->getResponse()->getStatusCode() ) {
+					return new SignedRegistryEntry();
+				}
+				throw new Exception( sprintf( 'Request failed with status code %d', $e->getResponse()->getStatusCode() ) );
+			}
+		} )->then( function ( $response ) use ( $options, $dataKey, $publicKey, $url ) {
+			if ( $response instanceof SignedRegistryEntry ) {
+				return $response;
+			}
+				if ( ! ( $response->getStatusCode() >= 200 && $response->getStatusCode() < 300 ) ) {
+					throw new BadResponseException( '', new Request( 'GET', $url ), $response );
+				}
 
-		validateUint8ArrayLen( "signatureArray", $signatureBytes, "response value", SIGNATURE_LENGTH );
-		validateUint8ArrayLen( "publicKeyArray", $publicKeyBytes, "response value", PUBLIC_KEY_LENGTH / 2 );
+			$body = $response->getBody();
+			$body->rewind();
+			$body = $body->getContents();
 
-		/** @noinspection NullPointerExceptionInspection */
-		if ( crypto_sign_verify_detached( $signatureBytes->toString(), hashRegistryEntry( $signedEntry->getEntry(), $options->isHashedDataKeyHex() )->toString(), $publicKeyBytes->toString() ) ) {
-			return $signedEntry;
-		}
+			try {
+				$body = preg_replace( REGEX_REVISION_NO_QUOTES, '"revision":"$1"', $body );
+				$body = json_decode( $body );
 
-		throw new Exception( 'Could not verify signature from retrieved, signed registry entry -- possible corrupted entry' );
+				validateString( "response->body->data", $body->data ?? null, "entry response field" );
+				validateString( "response->body->revision", $body->revision ?? null, "entry response field" );
+				validateString( "response->body->signature", $body->signature ?? null, "entry response field" );
+			} catch ( Exception $e ) {
+				throw new Exception( sprintf( 'Did not get a complete entry response despite a successful request. Please try again and report this issue to the devs if it persists. Error: %s', $e->getMessage() ) );
+			}
+
+			$revision  = new BN( $body->revision );
+			$signature = hexToUint8Array( $body->signature );
+
+			$data = new Uint8Array();
+			if ( $body->data ) {
+				$data = hexToUint8Array( $body->data );
+			}
+
+			$signedEntry = new SignedRegistryEntry(
+				[
+					'entry'     => new RegistryEntry( $dataKey, $data, $revision ),
+					'signature' => $signature,
+				] );
+
+			$signatureBytes = $signedEntry->getSignature();
+			$publicKeyBytes = hexToUint8Array( $publicKey );
+
+			validateUint8ArrayLen( "signatureArray", $signatureBytes, "response value", SIGNATURE_LENGTH );
+			validateUint8ArrayLen( "publicKeyArray", $publicKeyBytes, "response value", PUBLIC_KEY_LENGTH / 2 );
+
+			/** @noinspection NullPointerExceptionInspection */
+			if ( crypto_sign_verify_detached( $signatureBytes->toString(), hashRegistryEntry( $signedEntry->getEntry(), $options->isHashedDataKeyHex() )->toString(), $publicKeyBytes->toString() ) ) {
+				return $signedEntry;
+			}
+
+			throw new Exception( 'Could not verify signature from retrieved, signed registry entry -- possible corrupted entry' );
+		} );
 	}
 
 	/**
@@ -207,6 +218,10 @@ class Registry {
 		return getEntryUrlForPortal( $portalUrl, $publicKey, $dataKey, $options );
 	}
 
+	public function setEntry( string $privateKey, RegistryEntry $entry, ?CustomSetEntryOptions $options = null ): void {
+		$this->setEntryAsync( $privateKey, $entry, $options )->wait();
+	}
+
 	/**
 	 * @param string                                     $privateKey
 	 * @param \Skynet\Types\RegistryEntry                $entry
@@ -215,7 +230,7 @@ class Registry {
 	 * @return void
 	 * @throws \SodiumException
 	 */
-	public function setEntry( string $privateKey, RegistryEntry $entry, ?CustomSetEntryOptions $options = null ): void {
+	public function setEntryAsync( string $privateKey, RegistryEntry $entry, ?CustomSetEntryOptions $options = null ): PromiseInterface {
 		validateHexString( "privateKey", $privateKey, "parameter" );
 		validateRegistryEntry( "entry", $entry, "parameter" );
 
@@ -225,10 +240,9 @@ class Registry {
 
 		$privateKeyArray = hexToUint8Array( $privateKey );
 		$signature       = signEntry( $privateKey, $entry, $options->getHashedDataKeyHex() );
-		$publicKey = crypto_sign_publickey_from_secretkey( $privateKeyArray->toString() );
+		$publicKey       = crypto_sign_publickey_from_secretkey( $privateKeyArray->toString() );
 
-		$this->postSignedEntry( toHexString( $publicKey ), $entry, $signature, $options );
-
+		return $this->postSignedEntryAsync( toHexString( $publicKey ), $entry, $signature, $options );
 	}
 
 	/**
@@ -250,7 +264,7 @@ class Registry {
 	 * @return void
 	 * @throws \Requests_Exception
 	 */
-	public function postSignedEntry( string $publicKey, RegistryEntry $entry, Uint8Array $signature, ?CustomSetEntryOptions $options = null ): void {
+	public function postSignedEntryAsync( string $publicKey, RegistryEntry $entry, Uint8Array $signature, ?CustomSetEntryOptions $options = null ): PromiseInterface {
 		validateHexString( "publicKey", $publicKey, "parameter" );
 		validateRegistryEntry( "entry", $entry, "parameter" );
 
@@ -261,7 +275,7 @@ class Registry {
 			$datakey = toHexString( hashDataKey( $datakey ) );
 		}
 
-		$entryData = Uint8Array::from ( $entry->getData() );
+		$entryData = Uint8Array::from( $entry->getData() );
 
 		$data = [
 			'publickey' => [
@@ -278,13 +292,13 @@ class Registry {
 		$data = preg_replace( REGEX_REVISION_WITH_QUOTES, '"revision":$1', $data );
 
 		/** @var CustomSetEntryOptions $options */
-		$this->executeRequest( $this->buildRequestOptions(
+		return $this->executeRequest( $this->buildRequestOptions(
 			$options->toArray(),
 			[
 				'endpointPath' => $options->getEndpointSetEntry(),
 				'method'       => 'POST',
 				'data'         => $data,
 			],
-		 ) );
+		) );
 	}
 }

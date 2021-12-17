@@ -10,13 +10,13 @@
   ],
   "require": {
     "paragonie/sodium_compat": "^1.17",
-    "rmccue/requests": "^1.8",
     "jakeasmith/http_build_url": "^1",
     "simplito/bn-php": "^1.1",
     "ext-json": "*",
     "ext-curl": "*",
     "ankitpokhrel/tus-php": "^1.2",
-    "ext-dom": "*"
+    "ext-dom": "*",
+    "guzzlehttp/guzzle": "^7.4"
   },
   "autoload": {
     "psr-4": {
@@ -51,7 +51,8 @@
     "codeception/verify": "^2.1",
     "codeception/mockery-module": "^0.4.0",
     "monolog/monolog": "^2.3",
-    "ext-intl": "*"
+    "ext-intl": "*",
+    "hannesvdvreken/guzzle-debugbar": "^3.0"
   },
   "archive": {
     "exclude": [

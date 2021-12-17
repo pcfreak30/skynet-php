@@ -2,11 +2,11 @@
 
 namespace Skynet\Traits;
 
-use Exception;
 use GuzzleHttp\Client;
-use GuzzleHttp\Psr7\Response;
-use Requests;
+use GuzzleHttp\Promise\PromiseInterface;
+use Skynet\Db;
 use Skynet\Entity;
+use Skynet\MySky;
 use Skynet\Options\CustomClientOptions;
 use Skynet\Options\CustomGetEntryOptions;
 use Skynet\Options\Request;
@@ -33,13 +33,12 @@ trait BaseMethods {
 	/**
 	 * @param \Skynet\Options\Request $request
 	 *
-	 * @return Response
-	 * @throws \GuzzleHttp\Exception\GuzzleException
+	 * @return \GuzzleHttp\Promise\PromiseInterface
 	 */
 	protected
 	function executeRequest(
 		Request $request
-	): Response {
+	): PromiseInterface {
 		$url     = $this->buildRequestUrl( $request->getEndpointPath(), $request->getUrl(), $request->getExtraPath(), $request->getQuery() );
 		$headers = $this->buildRequestHeaders( $request->getHeaders(), $request->getCustomUserAgent(), $request->getCustomCookie() );
 
@@ -61,7 +60,7 @@ trait BaseMethods {
 			$data = null;
 		}
 
-		$response = $this->getHttpClient()->request( $request->getMethod(), $url, array_merge( [
+		$response = $this->getHttpClient()->requestAsync( $request->getMethod(), $url, array_merge( [
 			'headers'  => $headers,
 			$dataField => $data,
 		], $options ) );

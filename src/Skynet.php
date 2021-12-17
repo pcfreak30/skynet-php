@@ -5,6 +5,9 @@ namespace Skynet;
 use Exception;
 use GuzzleHttp\Cookie\CookieJar;
 use GuzzleHttp\Cookie\SetCookie;
+use GuzzleHttp\Promise\FulfilledPromise;
+use GuzzleHttp\Promise\PromiseInterface;
+use GuzzleHttp\Promise\RejectedPromise;
 use GuzzleHttp\Psr7\LazyOpenStream;
 use GuzzleHttp\Psr7\MimeType;
 use GuzzleHttp\Psr7\Response;
@@ -24,7 +27,6 @@ use Skynet\Types\GetMetadataResponse;
 use Skynet\Types\PinResponse;
 use Skynet\Types\ResolveHnsResponse;
 use Skynet\Types\UploadRequestResponse;
-use TusPhp\Tus\Client;
 use function Skynet\functions\formatting\formatSkylink;
 use function Skynet\functions\options\makeDownloadOptions;
 use function Skynet\functions\options\makeGetEntryOptions;
@@ -318,7 +320,7 @@ class Skynet {
 			]
 		);
 
-		$response = $this->executeRequest( $this->buildRequestOptions( $options ) );
+		$response = $this->executeRequest( $this->buildRequestOptions( $options ) )->wait();
 		if ( ! $response->getHeaders() || empty( $response->getHeaders() ) ) {
 			throw new Exception( "Did not get 'headers' in response despite a successful request. Please try again and report this issue to the devs if it persists." );
 		}
@@ -392,7 +394,18 @@ class Skynet {
 	 * @throws \GuzzleHttp\Exception\GuzzleException
 	 * @throws \JsonException
 	 */
-	public function getMetadata( string $skylinkUrl, ?CustomGetMetadataOptions $options = null ) {
+	public function getMetadata( string $skylinkUrl, ?CustomGetMetadataOptions $options = null ): GetMetadataResponse {
+		return $this->getMetadataAsync( $skylinkUrl, $options );
+	}
+
+	/**
+	 * @param string                                        $skylinkUrl
+	 * @param \Skynet\Options\CustomGetMetadataOptions|null $options
+	 *
+	 * @return \GuzzleHttp\Promise\PromiseInterface
+	 * @throws \Exception
+	 */
+	public function getMetadataAsync( string $skylinkUrl, ?CustomGetMetadataOptions $options = null ): PromiseInterface {
 		/** @noinspection CallableParameterUseCaseInTypeContextInspection */
 		$options = mergeOptions(
 			self::DEFAULT_GET_METADATA_OPTIONS,
@@ -410,53 +423,57 @@ class Skynet {
 
 		$url = $this->getSkylinkUrl( $skylinkUrl, $getSkylinkUrlOpts );
 
-		$response = $this->executeRequest( $this->buildRequestOptions(
+		return $this->executeRequest( $this->buildRequestOptions(
 			$options->toArray(), [
 			'endpointPath' => $options->getEndpointGetMetadata(),
 			'method'       => 'GET',
 			'url'          => $url,
-		] ) );
+		] ) )->then( function ( Response $response ) use ( $skylinkUrl ) {
+			$inputSkylink = parseSkylink( $skylinkUrl );
 
-		$inputSkylink = parseSkylink( $skylinkUrl );
+			$response->getBody()->rewind();
+			$body = json_decode( $response->getBody()->getContents() );
 
-		$response->getBody()->rewind();
-		$body = json_decode( $response->getBody()->getContents() );
+			try {
+				if ( ! $body && ! is_array( $body ) ) {
+					throw new Exception( "'response->body' field missing" );
+				}
 
-		try {
-			if ( ! $body && ! is_array( $body ) ) {
-				throw new Exception( "'response->body' field missing" );
+				if ( ! $response->getHeaders() || empty( $response->getHeaders() ) ) {
+					throw new Exception( "'response->headers' field missing" );
+				}
+
+				$portalUrl = $response->getHeader( 'skynet-portal-api' )[0] ?? null;
+				if ( ! $portalUrl ) {
+					throw new Exception( "'skynet-portal-api' header missing" );
+				}
+
+				validateString( 'response->headers("skynet-portal-api")', $portalUrl, "getMetadata response header" );
+
+				$skylink = $response->getHeader( 'skynet-skylink' ) [0] ?? null;
+				if ( ! $skylink ) {
+					throw new Exception( "'skynet-skylink' header missing" );
+				}
+
+				validateSkylinkString( 'response->headers("skynet-skylink")', $skylink, "getMetadata response header" );
+			} catch ( Exception $e ) {
+				throw new Exception( sprintf( "Metadata response invalid despite a successful request. Please try again and report this issue to the devs if it persists. %s", $e->getMessage() ) );
 			}
 
-			if ( ! $response->getHeaders() || empty( $response->getHeaders() ) ) {
-				throw new Exception( "'response->headers' field missing" );
-			}
+			validateRegistryProofResponse( $inputSkylink, $skylink, $response->getHeader( 'skynet-proof' )[0] ?? null );
+
+			$response->getBody()->rewind();
+			$metadata = (object) json_decode( $response->getBody()->getContents() );
 
 			$portalUrl = $response->getHeader( 'skynet-portal-api' )[0] ?? null;
-			if ( ! $portalUrl ) {
-				throw new Exception( "'skynet-portal-api' header missing" );
-			}
+			$skylink   = formatSkylink( $response->getHeader( 'skynet-skylink' )[0] ?? null );
 
-			validateString( 'response->headers("skynet-portal-api")', $portalUrl, "getMetadata response header" );
-
-			$skylink = $response->getHeader( 'skynet-skylink' ) [0] ?? null;
-			if ( ! $skylink ) {
-				throw new Exception( "'skynet-skylink' header missing" );
-			}
-
-			validateSkylinkString( 'response->headers("skynet-skylink")', $skylink, "getMetadata response header" );
-		} catch ( Exception $e ) {
-			throw new Exception( sprintf( "Metadata response invalid despite a successful request. Please try again and report this issue to the devs if it persists. %s", $e->getMessage() ) );
-		}
-
-		validateRegistryProofResponse( $inputSkylink, $skylink, $response->getHeader( 'skynet-proof' )[0] ?? null );
-
-		$response->getBody()->rewind();
-		$metadata = (object) json_decode( $response->getBody()->getContents() );
-
-		$portalUrl = $response->getHeader( 'skynet-portal-api' )[0] ?? null;
-		$skylink   = formatSkylink( $response->getHeader( 'skynet-skylink' )[0] ?? null );
-
-		return new GetMetadataResponse( [ 'metadata' => $metadata, 'portalUrl' => $portalUrl, 'skylink' => $skylink ] );
+			return new GetMetadataResponse( [
+				'metadata'  => $metadata,
+				'portalUrl' => $portalUrl,
+				'skylink'   => $skylink,
+			] );
+		} );
 	}
 
 	/**
@@ -467,25 +484,36 @@ class Skynet {
 	 * @throws \Exception
 	 */
 	public function getFileContent( string $skylinkUrl, ?CustomDownloadOptions $options = null ): GetFileContentResponse {
-		$options = $this->buildDownloadOptions( $options );
-
-		$response = $this->getFileContentRequest( $skylinkUrl, $options );
-
-		$inputSkylink = parseSkylink( $skylinkUrl );
-
-		$this->validateGetFileContentResponse( $response, $inputSkylink );
-
-		return $this->extractGetFileContentResponse( $response );
+		return $this->getFileContentAsync( $skylinkUrl, $options )->wait();
 	}
 
 	/**
 	 * @param string                                     $skylinkUrl
 	 * @param \Skynet\Options\CustomDownloadOptions|null $options
 	 *
-	 * @return \GuzzleHttp\Psr7\Response
+	 * @return \GuzzleHttp\Promise\PromiseInterface
 	 * @throws \GuzzleHttp\Exception\GuzzleException
 	 */
-	private function getFileContentRequest( string $skylinkUrl, ?CustomDownloadOptions $options = null ) {
+	public function getFileContentAsync( string $skylinkUrl, ?CustomDownloadOptions $options = null ): PromiseInterface {
+		$options = $this->buildDownloadOptions( $options );
+
+		return $this->getFileContentRequest( $skylinkUrl, $options )->then( function ( Response $response ) use ( $skylinkUrl ) {
+			$inputSkylink = parseSkylink( $skylinkUrl );
+
+			$this->validateGetFileContentResponse( $response, $inputSkylink );
+
+			return $this->extractGetFileContentResponse( $response );
+		} );
+	}
+
+	/**
+	 * @param string                                     $skylinkUrl
+	 * @param \Skynet\Options\CustomDownloadOptions|null $options
+	 *
+	 * @return \GuzzleHttp\Promise\PromiseInterface
+	 * @throws \Exception
+	 */
+	private function getFileContentRequest( string $skylinkUrl, ?CustomDownloadOptions $options = null ): PromiseInterface {
 		$options = $this->buildDownloadOptions( $options );
 
 		$url = $this->getSkylinkUrl( $skylinkUrl, $options );
@@ -759,13 +787,21 @@ class Skynet {
 		return new Registry( $this, $this->options );
 	}
 
+	public function uploadFile( File $file, CustomUploadOptions $options = null ): UploadRequestResponse {
+		return $this->uploadFileAsync( $file, $options )->wait();
+	}
+
 	/**
 	 * @param \Skynet\Types\File                       $file
 	 * @param \Skynet\Options\CustomUploadOptions|null $options
 	 *
-	 * @return \Skynet\Types\UploadRequestResponse
+	 * @return \GuzzleHttp\Promise\PromiseInterface
+	 * @throws \GuzzleHttp\Exception\GuzzleException
+	 * @throws \ReflectionException
+	 * @throws \TusPhp\Exception\ConnectionException
+	 * @throws \TusPhp\Exception\TusException
 	 */
-	public function uploadFile( File $file, CustomUploadOptions $options = null ): UploadRequestResponse {
+	public function uploadFileAsync( File $file, CustomUploadOptions $options = null ): PromiseInterface {
 		$options = $this->buildUploadOptions( $options );
 
 		if ( $file->getFileSize() < $options->getLargeFileSize() ) {
@@ -792,26 +828,27 @@ class Skynet {
 	 * @return \Skynet\Types\UploadRequestResponse
 	 * @throws \Exception
 	 */
-	private function uploadSmallFile( File $file, CustomUploadOptions $options ): UploadRequestResponse {
-		$response = $this->uploadSmallFileRequest( $file, $options );
+	private function uploadSmallFile( File $file, CustomUploadOptions $options ): PromiseInterface {
+		$promise = $this->uploadSmallFileRequest( $file, $options );
 
-		validateUploadResponse( $response );
+		return $promise->then( function ( Response $response ) {
+			validateUploadResponse( $response );
 
-		$response->getBody()->rewind();
+			$response->getBody()->rewind();
 
-		$skylink = formatSkylink( json_decode( $response->getBody()->getContents() )->skylink );
+			$skylink = formatSkylink( json_decode( $response->getBody()->getContents() )->skylink );
 
-		return new UploadRequestResponse( [ 'skylink' => $skylink ] );
+			return new UploadRequestResponse( [ 'skylink' => $skylink ] );
+		} );
 	}
 
 	/**
 	 * @param \Skynet\Types\File                  $file
 	 * @param \Skynet\Options\CustomUploadOptions $options
 	 *
-	 * @return \GuzzleHttp\Psr7\Response
-	 * @throws \GuzzleHttp\Exception\GuzzleException
+	 * @return \GuzzleHttp\Promise\PromiseInterface
 	 */
-	private function uploadSmallFileRequest( File $file, CustomUploadOptions $options ): Response {
+	private function uploadSmallFileRequest( File $file, CustomUploadOptions $options ): PromiseInterface {
 		$options = $this->buildUploadOptions( $options );
 
 		$requestOpts = $options->getExtraOptions();
@@ -864,30 +901,35 @@ class Skynet {
 	 * @param \Skynet\Types\File                       $file
 	 * @param \Skynet\Options\CustomUploadOptions|null $options
 	 *
-	 * @return \Skynet\Types\UploadRequestResponse
-	 * @throws \Exception
+	 * @return \GuzzleHttp\Promise\PromiseInterface
+	 * @throws \GuzzleHttp\Exception\GuzzleException
+	 * @throws \ReflectionException
+	 * @throws \TusPhp\Exception\ConnectionException
+	 * @throws \TusPhp\Exception\TusException
 	 */
-	private function uploadLargeFile( File $file, ?CustomUploadOptions $options = null ) {
-		$response = $this->uploadLargeFileRequest( $file, $options );
+	private function uploadLargeFile( File $file, ?CustomUploadOptions $options = null ): PromiseInterface {
+		$promise = $this->uploadLargeFileRequest( $file, $options );
 
-		validateLargeUploadResponse( $response );
+		return $promise->then( function ( Response $response ) {
+			validateLargeUploadResponse( $response );
 
-		$skylink = formatSkylink( $response->getHeaderLine( "skynet-skylink" ) ?? null );
+			$skylink = formatSkylink( $response->getHeaderLine( "skynet-skylink" ) ?? null );
 
-		return new UploadRequestResponse( [ 'skylink' => $skylink ] );
+			return new UploadRequestResponse( [ 'skylink' => $skylink ] );
+		} );
 	}
 
 	/**
 	 * @param \Skynet\Types\File                  $file
 	 * @param \Skynet\Options\CustomUploadOptions $options
 	 *
-	 * @return \GuzzleHttp\Psr7\Response
+	 * @return \GuzzleHttp\Promise\PromiseInterface
 	 * @throws \GuzzleHttp\Exception\GuzzleException
 	 * @throws \ReflectionException
 	 * @throws \TusPhp\Exception\ConnectionException
 	 * @throws \TusPhp\Exception\TusException
 	 */
-	private function uploadLargeFileRequest( File $file, CustomUploadOptions $options ): Response {
+	private function uploadLargeFileRequest( File $file, CustomUploadOptions $options ): PromiseInterface {
 		$options = $this->buildUploadOptions( $options );
 
 		$url     = $this->buildRequestUrl( $options->getEndpointLargeUpload() );
@@ -904,7 +946,7 @@ class Skynet {
 			$requestOpts['auth'] = [ '', $options->getApiKey(), 'basic' ];
 		}
 
-		$client = new Client( trailingslashit( dirname( $url ) ), array_merge( [
+		$client = new TusClient( trailingslashit( dirname( $url ) ), array_merge( [
 			'headers' => $headers,
 		], $requestOpts ) );
 
@@ -933,17 +975,41 @@ class Skynet {
 
 		$size = $file->getFileSize();
 
-		do {
-			$pos = $client->upload( TUS_CHUNK_SIZE );
-		} while ( $pos < $size );
 
-		if ( isset( $temp ) ) {
-			@unlink( $temp );
-		}
+		$list = [];
+		$pos  = 0;
 
-		return $client->getClient()->head( $client->getUrl(), [
-			'headers' => [ 'Tus-Resumable' => Client::TUS_PROTOCOL_VERSION ],
-		] );
+		$queue = null;
+
+		$queue = function () use ( $queue, $size, $pos, $client, &$list ) {
+			if ( $pos >= $size ) {
+				return new FulfilledPromise( null );
+			}
+
+			$list = array_filter( $list, function ( PromiseInterface $item ) {
+				return $item->getState() === PromiseInterface::PENDING;
+			} );
+
+			while ( count( $list ) < TUS_PARALLEL_UPLOADS && $pos < $size ) {
+				$list[] = $client->uploadAsync( TUS_CHUNK_SIZE )->then( function ( int $bytes ) use ( &$pos ) {
+					if ( $bytes >= $pos ) {
+						$pos = $bytes;
+					}
+				} );
+			}
+
+			return \GuzzleHttp\Promise\Utils::any( $list )->then( $queue );
+		};
+
+		return $queue()->then( function () use ( $client, $temp ) {
+			if ( isset( $temp ) ) {
+				@unlink( $temp );
+			}
+
+			return $client->getClient()->headAsync( $client->getUrl(), [
+				'headers' => [ 'Tus-Resumable' => TusClient::TUS_PROTOCOL_VERSION ],
+			] );
+		} );
 	}
 
 	/**
@@ -1178,20 +1244,29 @@ class Skynet {
 	}
 
 	public function unpinSkylink( string $skylink ): bool {
+		$response = $this->unpinSkylinkAsync( $skylink )->wait();
+
+		if ( $response ) {
+			return $response->getStatusCode() === 204;
+		}
+
+		return false;
+	}
+
+	public function unpinSkylinkAsync( string $skylink ): PromiseInterface {
 		if ( null == $this->sessionKey ) {
-			return false;
+			return new RejectedPromise( null );
 		}
 
 		validateSkylinkString( 'skylink', $skylink, 'parameter' );
 
-		$response = $this->executeRequest( $this->buildRequestOptions( [
+		return $this->executeRequest( $this->buildRequestOptions( [
 			'url'          => $this->portalAccountUrl . '/user/uploads/' . trimPrefix( $skylink, URI_SKYNET_PREFIX ),
 			'endpointPath' => '',
 			'method'       => 'DELETE',
 			'headers'      => [ 'Referer' => $this->portalAccountUrl ],
 		] ) );
 
-		return $response->getStatusCode() === 204;
 	}
 
 	/**
