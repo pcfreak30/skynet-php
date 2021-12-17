@@ -135,6 +135,26 @@ trait BaseMethods {
 	 */
 	public function setHttpClient( Client $httpClient ): void {
 		$this->httpClient = $httpClient;
+
+		$list = [
+			MySky::class    => [ 'db' ],
+			Db::class       => [ 'registry' ],
+			Registry::class => [ 'skynet' ],
+		];
+
+		foreach ( $list as $class => $props ) {
+			foreach ($props as $prop){
+				if ( $this instanceof $class ) {
+					$method = 'get' . ucfirst( $prop );
+					if ( method_exists( $this, $method ) ) {
+						if ( $httpClient !== $this->{$method}()->getHttpClient() ) {
+							$this->{$method}()->setHttpClient( $httpClient );
+						}
+					}
+				}
+			}
+
+		}
 	}
 
 	/**
