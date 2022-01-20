@@ -199,6 +199,10 @@ class MySky {
 	 * @throws \Exception
 	 */
 	public function getJSON( string $path, ?string $userId = null, ?CustomGetJSONOptions $options = null ): JSONResponse {
+		return $this->getJSONAsync( $path, $userId, $options )->wait();
+	}
+
+	public function getJSONAsync( string $path, ?string $userId = null, ?CustomGetJSONOptions $options = null ): PromiseInterface {
 		$options = $this->buildGetJSONOptions( $options );
 
 		$publicKey = $userId ?? $this->getUserId();
@@ -206,7 +210,7 @@ class MySky {
 
 		$options->setHashedDataKeyHex( true );
 
-		return $this->db->getJSON( $publicKey, $dataKey, $options );
+		return $this->db->getJSONAsync( $publicKey, $dataKey, $options );
 	}
 
 	/**
@@ -252,7 +256,7 @@ class MySky {
 	 * @param \Skynet\Options\CustomSetJSONOptions|null $options
 	 *
 	 * @return \Skynet\Types\JSONResponse
-	 * @throws \Requests_Exception
+	 * @throws \GuzzleHttp\Exception\GuzzleException
 	 */
 	public function setJSONAsync( string $path, $json, ?CustomSetJSONOptions $options = null, bool $encrypted = false ): PromiseInterface {
 		if ( ! is_array( $json ) && ! ( $json instanceof \stdClass ) ) {
@@ -277,6 +281,10 @@ class MySky {
 			$setEntryOptions = extractOptions( $options, Registry::DEFAULT_SET_ENTRY_OPTIONS );
 			$getEntryOptions = extractOptions( $options, Registry::DEFAULT_GET_ENTRY_OPTIONS );
 
+			if ( is_array( $entry ) ) {
+				$entry = $entry[0];
+			}
+
 			$process = function ( bool $recomputeRegistry ) use ( $publicKey, $entry, &$setEntryOptions, &$process, $encrypted, &$json, $path, $dataKey, $getEntryOptions ) {
 				/* @var RegistryEntry $entry */
 				$promise = new FulfilledPromise( null );
@@ -285,6 +293,7 @@ class MySky {
 				}
 
 				return $promise->then( function ( ?RegistryEntry $entry2 ) use ( &$process, &$json, $entry, $path, $publicKey, &$setEntryOptions, $encrypted ) {
+
 					/* @var RegistryEntry $entry */
 					if ( $entry2 ) {
 						$entry2->setData( $entry->getData() );
@@ -378,7 +387,7 @@ class MySky {
 	 * @param \Skynet\Options\CustomSetJSONOptions|null $options
 	 *
 	 * @return void
-	 * @throws \Requests_Exception
+	 * @throws \GuzzleHttp\Exception\GuzzleException
 	 * @throws \SodiumException
 	 */
 	public function setEncryptedDataLink( string $path, string $dataLink, ?CustomSetJSONOptions $options = null ): void {
@@ -391,7 +400,7 @@ class MySky {
 	 * @param \Skynet\Options\CustomSetJSONOptions|null $options
 	 *
 	 * @return void
-	 * @throws \Requests_Exception
+	 * @throws \GuzzleHttp\Exception\GuzzleException
 	 * @throws \SodiumException
 	 */
 	public function setEncryptedDataLinkASync( string $path, string $dataLink, ?CustomSetJSONOptions $options = null ): PromiseInterface {
@@ -404,7 +413,7 @@ class MySky {
 	 * @param \Skynet\Options\CustomSetJSONOptions|null $options
 	 *
 	 * @return PromiseInterface
-	 * @throws \Requests_Exception
+	 * @throws \GuzzleHttp\Exception\GuzzleException
 	 * @throws \SodiumException
 	 */
 	public function setDataLinkAsync( string $path, string $dataLink, ?CustomSetJSONOptions $options = null, $encrypted = false ): PromiseInterface {
@@ -427,7 +436,7 @@ class MySky {
 	 * @param \Skynet\Options\CustomSetJSONOptions|null $options
 	 *
 	 * @return void
-	 * @throws \Requests_Exception
+	 * @throws \GuzzleHttp\Exception\GuzzleException
 	 * @throws \SodiumException
 	 */
 	public function setDataLink( string $path, string $dataLink, ?CustomSetJSONOptions $options = null, $encrypted = false ): void {
@@ -440,7 +449,7 @@ class MySky {
 	 * @param \Skynet\Options\CustomGetEntryOptions|null $options
 	 *
 	 * @return \Skynet\Types\RegistryEntry|null
-	 * @throws \Requests_Exception
+	 * @throws \GuzzleHttp\Exception\GuzzleException
 	 * @throws \SodiumException
 	 */
 	public function getEncryptedDataLink( string $entryLink, ?CustomGetEntryOptions $options = null ): ?RegistryEntry {
@@ -452,7 +461,7 @@ class MySky {
 	 * @param \Skynet\Options\CustomGetEntryOptions|null $options
 	 *
 	 * @return \GuzzleHttp\Promise\PromiseInterface
-	 * @throws \Requests_Exception
+	 * @throws \GuzzleHttp\Exception\GuzzleException
 	 * @throws \SodiumException
 	 */
 	public function getEncryptedDataLinkAsync( string $entryLink, ?CustomGetEntryOptions $options = null ): PromiseInterface {
@@ -465,7 +474,7 @@ class MySky {
 	 * @param bool                                       $encrypted
 	 *
 	 * @return \GuzzleHttp\Promise\PromiseInterface
-	 * @throws \Requests_Exception
+	 * @throws \GuzzleHttp\Exception\GuzzleException
 	 * @throws \SodiumException
 	 */
 	public function getDataLinkAsync( string $entryLink, ?CustomGetEntryOptions $options = null, $encrypted = false ): PromiseInterface {
@@ -500,7 +509,7 @@ class MySky {
 	 * @param bool                                       $encrypted
 	 *
 	 * @return \Skynet\Types\RegistryEntry|null
-	 * @throws \Requests_Exception
+	 * @throws \GuzzleHttp\Exception\GuzzleException
 	 * @throws \SodiumException
 	 */
 	public function getDataLink( string $entryLink, ?CustomGetEntryOptions $options = null, $encrypted = false ): ?RegistryEntry {
@@ -533,7 +542,7 @@ class MySky {
 	 * @param \Skynet\Options\CustomGetEntryOptions|null $options
 	 *
 	 * @return \Skynet\Types\EntryData
-	 * @throws \Requests_Exception
+	 * @throws \GuzzleHttp\Exception\GuzzleException
 	 * @throws \SodiumException
 	 */
 	public function getEntryData( string $path, ?string $userId = null, ?CustomGetEntryOptions $options = null ): EntryData {
@@ -560,7 +569,7 @@ class MySky {
 	 * @param \Skynet\Options\CustomSetEntryOptions|null $options
 	 *
 	 * @return \Skynet\Types\EntryData
-	 * @throws \Requests_Exception
+	 * @throws \GuzzleHttp\Exception\GuzzleException
 	 */
 	public function setEntryData( string $path, Uint8Array $data, ?CustomSetEntryOptions $options = null ) {
 		if ( $data->getMaxLength() > Registry::MAX_ENTRY_LENGTH ) {
@@ -705,7 +714,7 @@ class MySky {
 	 * @param \Skynet\Options\CustomSetJSONOptions|null $options
 	 *
 	 * @return void
-	 * @throws \Requests_Exception
+	 * @throws \GuzzleHttp\Exception\GuzzleException
 	 * @throws \SodiumException
 	 */
 	public function deleteJSONEncrypted( string $path, ?CustomSetJSONOptions $options = null ): void {
@@ -718,7 +727,7 @@ class MySky {
 	 * @param                                           $encrypted
 	 *
 	 * @return void
-	 * @throws \Requests_Exception
+	 * @throws \GuzzleHttp\Exception\GuzzleException
 	 * @throws \SodiumException
 	 */
 	public function deleteJSONEncryptedAsync( string $path, ?CustomSetJSONOptions $options = null ): PromiseInterface {
@@ -731,7 +740,7 @@ class MySky {
 	 * @param                                           $encrypted
 	 *
 	 * @return void
-	 * @throws \Requests_Exception
+	 * @throws \GuzzleHttp\Exception\GuzzleException
 	 * @throws \SodiumException
 	 */
 	public function deleteJSONAsync( string $path, ?CustomSetJSONOptions $options = null, $encrypted = false ): PromiseInterface {

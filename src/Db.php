@@ -18,6 +18,7 @@ use Skynet\Types\JSONResponse;
 use Skynet\Types\RawBytesResponse;
 use Skynet\Types\RegistryEntry;
 use Skynet\Types\SignedRegistryEntry;
+use Skynet\Types\UploadRequestResponse;
 use stdClass;
 use function Skynet\functions\formatting\decodeSkylinkBase64;
 use function Skynet\functions\formatting\formatSkylink;
@@ -136,49 +137,67 @@ class Db {
 	 * @return \Skynet\Types\JSONResponse
 	 * @throws \Exception
 	 */
-	public function getJSON( string $publicKey, string $dataKey, ?CustomGetJSONOptions $options = null ) {
+	public function getJSON( string $publicKey, string $dataKey, ?CustomGetJSONOptions $options = null ): PromiseInterface {
+		return $this->getJSONAsync( $publicKey, $dataKey, $options )->wait();
+	}
+
+	/**
+	 * @param string                                    $publicKey
+	 * @param string                                    $dataKey
+	 * @param \Skynet\Options\CustomGetJSONOptions|null $options
+	 *
+	 * @return \Skynet\Types\JSONResponse
+	 * @throws \Exception
+	 */
+	public function getJSONAsync( string $publicKey, string $dataKey, ?CustomGetJSONOptions $options = null ): PromiseInterface {
 		$options = $this->buildGetJSONOptions( $options );
 
 		/** @var RegistryEntry $entry */
-		$entry = $this->getRegistryEntry( $publicKey, $dataKey, $options );
-		$resp  = new JSONResponse();
-		if ( null === $entry ) {
-			return $resp;
-		}
 
-		[ 'rawDataLink' => $rawDataLink, 'dataLink' => $dataLink ] = parseDataLink( $entry->getData(), true );
+		return $this->getRegistryEntryAsync( $publicKey, $dataKey, $options )->then( function ( ?RegistryEntry $entry ) use ( $options, $dataKey ) {
+			$resp = new JSONResponse();
+			if ( null === $entry ) {
+				return $resp;
+			}
 
-		if ( checkCachedDataLink( $rawDataLink, $options->getCachedDownloadLink() ) ) {
-			$resp->setDataLink( $dataLink );
+			[
+				'rawDataLink' => $rawDataLink,
+				'dataLink'    => $dataLink,
+			] = parseDataLink( $entry->getData(), true );
 
-			return $resp;
-		}
+			if ( checkCachedDataLink( $rawDataLink, $options->getCachedDownloadLink() ) ) {
+				$resp->setDataLink( $dataLink );
 
-		$downloadOptions = extractOptions( $options, Skynet::DEFAULT_DOWNLOAD_OPTIONS );
-		[ 'data' => $data ] = $this->getSkynet()->getFileContent( $dataLink, makeDownloadOptions( $downloadOptions ) );
+				return $resp;
+			}
 
-		$data = json_decode( $data );
+			$downloadOptions = extractOptions( $options, Skynet::DEFAULT_DOWNLOAD_OPTIONS );
 
+			return $this->getSkynet()->getFileContentAsync( $dataLink, makeDownloadOptions( $downloadOptions ) )->then( function ( ?GetFileContentResponse $response ) use ( $dataKey, $dataLink, &$resp ): JSONResponse {
+				[ 'data' => $data ] = $response;
+				$data = json_decode( $data );
 
-		if ( ! is_object( $data ) || null === $data ) {
-			throw new Exception( sprintf( "File data for the entry at data key %s is not JSON.", $dataKey ) );
-		}
+				if ( ! is_object( $data ) || null === $data ) {
+					throw new Exception( sprintf( "File data for the entry at data key %s is not JSON.", $dataKey ) );
+				}
 
-		if ( ! ( $data->_data && $data->_v ) ) {
-			$resp->setData( $data );
-			$resp->setDataLink( $dataLink );
-		}
+				if ( ! ( $data->_data && $data->_v ) ) {
+					$resp->setData( $data );
+					$resp->setDataLink( $dataLink );
+				}
 
-		$actualData = $data->_data;
+				$actualData = $data->_data;
 
-		if ( ! is_object( $actualData ) || null === $actualData ) {
-			throw new Exception( sprintf( "File data '_data' for the entry at data key '%s' is not JSON.", $dataKey ) );
-		}
+				if ( ! is_object( $actualData ) || null === $actualData ) {
+					throw new Exception( sprintf( "File data '_data' for the entry at data key '%s' is not JSON.", $dataKey ) );
+				}
 
-		$resp->setData( $actualData );
-		$resp->setDataLink( $dataLink );
+				$resp->setData( $actualData );
+				$resp->setDataLink( $dataLink );
 
-		return $resp;
+				return $resp;
+			} );
+		} );
 	}
 
 	/**
@@ -193,19 +212,6 @@ class Db {
 	): CustomGetJSONOptions {
 		/** @noinspection CallableParameterUseCaseInTypeContextInspection */
 		return $this->buildOptions( self::DEFAULT_GET_JSON_OPTIONS, CustomGetJSONOptions::class, $options, $funcOptions );
-	}
-
-	/**
-	 * @param string                               $publicKey
-	 * @param string                               $dataKey
-	 * @param \Skynet\Options\CustomGetJSONOptions $options
-	 *
-	 * @return \Skynet\Types\RegistryEntry|null
-	 * @throws \Requests_Exception
-	 * @throws \SodiumException
-	 */
-	public function getRegistryEntry( string $publicKey, string $dataKey, CustomGetJSONOptions $options ): ?RegistryEntry {
-		return $this->getRegistryEntryAsync( $publicKey, $dataKey, $options )->wait();
 	}
 
 	/**
@@ -248,6 +254,19 @@ class Db {
 	}
 
 	/**
+	 * @param string                               $publicKey
+	 * @param string                               $dataKey
+	 * @param \Skynet\Options\CustomGetJSONOptions $options
+	 *
+	 * @return \Skynet\Types\RegistryEntry|null
+	 * @throws \Requests_Exception
+	 * @throws \SodiumException
+	 */
+	public function getRegistryEntry( string $publicKey, string $dataKey, CustomGetJSONOptions $options ): ?RegistryEntry {
+		return $this->getRegistryEntryAsync( $publicKey, $dataKey, $options )->wait();
+	}
+
+	/**
 	 * @param string                                    $privateKey
 	 * @param string                                    $dataKey
 	 * @param                                           $json
@@ -256,7 +275,20 @@ class Db {
 	 * @return \Skynet\Types\JSONResponse
 	 * @throws \SodiumException
 	 */
-	public function setJSON( string $privateKey, string $dataKey, $json, ?CustomSetJSONOptions $options = null ) {
+	public function setJSON( string $privateKey, string $dataKey, $json, ?CustomSetJSONOptions $options = null ): JSONResponse {
+		return $this->setJSONAsync( $privateKey, $dataKey, $json, $options );
+	}
+
+	/**
+	 * @param string                                    $privateKey
+	 * @param string                                    $dataKey
+	 * @param                                           $json
+	 * @param \Skynet\Options\CustomSetJSONOptions|null $options
+	 *
+	 * @return \Skynet\Types\JSONResponse
+	 * @throws \SodiumException
+	 */
+	public function setJSONAsync( string $privateKey, string $dataKey, $json, ?CustomSetJSONOptions $options = null ) {
 		validateHexString( "privateKey", $privateKey, "parameter" );
 
 		$options = $this->buildSetJSONOptions( $options );
@@ -266,12 +298,15 @@ class Db {
 		}
 
 		$publicKey = crypto_sign_publickey_from_secretkey( hexToString( $privateKey ) );
-		[ $entry, $dataLink ] = $this->getOrCreateRegistryEntry( toHexString( $publicKey ), $dataKey, $json, $options );
 
-		$setEntryOptions = extractOptions( $options, Registry::DEFAULT_SET_ENTRY_OPTIONS );
-		$this->registry->setEntry( $privateKey, $entry, makeSetEntryOptions( $setEntryOptions ) );
+		return $this->getOrCreateRegistryEntry( toHexString( $publicKey ), $dataKey, $json, $options )->then( function ( array $registryEntry ) use ( &$json, $privateKey, &$options ) {
+			[ $entry, $dataLink ] = $registryEntry;
 
-		return new JSONResponse( [ 'data' => (object) $json, 'dataLink' => formatSkylink( $dataLink ) ] );
+			$setEntryOptions = extractOptions( $options, Registry::DEFAULT_SET_ENTRY_OPTIONS );
+			$this->registry->setEntry( $privateKey, $entry, makeSetEntryOptions( $setEntryOptions ) );
+
+			return new JSONResponse( [ 'data' => (object) $json, 'dataLink' => formatSkylink( $dataLink ) ] );
+		} );
 	}
 
 	/**
@@ -299,6 +334,20 @@ class Db {
 	 * @throws \SodiumException
 	 */
 	public function getOrCreateRegistryEntry( string $publicKey, string $dataKey, $json, ?CustomSetJSONOptions $options = null ): array {
+		return $this->getOrCreateRegistryEntryAsync( $publicKey, $dataKey, $json, $options )->wait();
+	}
+
+	/**
+	 * @param string                                    $publicKey
+	 * @param string                                    $dataKey
+	 * @param                                           $json
+	 * @param \Skynet\Options\CustomSetJSONOptions|null $options
+	 *
+	 * @return array
+	 * @throws \Requests_Exception
+	 * @throws \SodiumException
+	 */
+	public function getOrCreateRegistryEntryAsync( string $publicKey, string $dataKey, $json, ?CustomSetJSONOptions $options = null ): PromiseInterface {
 		if ( ! is_array( $json ) && ! ( $json instanceof stdClass ) ) {
 			throwValidationError( 'json', $json, 'parameter', 'object or array' );
 		}
@@ -322,19 +371,24 @@ class Db {
 		] );
 
 		$uploadOptions = extractOptions( $options, Skynet::DEFAULT_UPLOAD_OPTIONS );
-		$skyfile       = $this->getSkynet()->uploadFile( $file, makeUploadOptions( $uploadOptions ) );
 
-		$getEntryOptions = extractOptions( $options, Registry::DEFAULT_GET_ENTRY_OPTIONS );
-		$signedEntry     = $this->registry->getEntry( $publicKey, $dataKey, makeGetEntryOptions( $getEntryOptions ) );
+		$uploadPromise = $this->getSkynet()->uploadFileAsync( $file, makeUploadOptions( $uploadOptions ) );
 
-		$revision = $this->getNextRevisionFromEntry( $signedEntry->getEntry() );
+		$getEntryOptions    = extractOptions( $options, Registry::DEFAULT_GET_ENTRY_OPTIONS );
+		$signedEntryPromise = $this->registry->getEntryAsync( $publicKey, $dataKey, makeGetEntryOptions( $getEntryOptions ) );
 
-		$dataLink = trimUriPrefix( $skyfile->getSkylink(), URI_SKYNET_PREFIX );
-		$data     = decodeSkylinkBase64( $dataLink );
-		validateUint8ArrayLen( 'data', $data, 'skylink byte array', RAW_SKYLINK_SIZE );
-		$entry = new RegistryEntry( $dataKey, $data, new BN( $revision ) );
+		return Utils::all( [ $uploadPromise, $signedEntryPromise ] )->then( function ( $promises ) use ( $dataKey ) {
+			[ $skyfile, $signedEntry ] = $promises;
 
-		return [ $entry, formatSkylink( $dataLink ) ];
+			$revision = $this->getNextRevisionFromEntry( $signedEntry->getEntry() );
+
+			$dataLink = trimUriPrefix( $skyfile->getSkylink(), URI_SKYNET_PREFIX );
+			$data     = decodeSkylinkBase64( $dataLink );
+			validateUint8ArrayLen( 'data', $data, 'skylink byte array', RAW_SKYLINK_SIZE );
+			$entry = new RegistryEntry( $dataKey, $data, new BN( $revision ) );
+
+			return [ $entry, formatSkylink( $dataLink ) ];
+		} );
 	}
 
 	/**
@@ -349,7 +403,7 @@ class Db {
 		} else {
 			$revision = $entry->getRevision()->add( new BN( 1 ) );
 		}
-		
+
 		if ( $revision->gt( Registry::getMaxRevision() ) ) {
 			throw new Exception( 'Current entry already has maximum allowed revision, could not update the entry' );
 		}
@@ -537,6 +591,7 @@ class Db {
 						throw $e;
 					}
 				}
+
 				return $this->setDataLinkAsync( $privateKey, $dataKey, $dataLink, $options );
 			} );
 		} );

@@ -8,7 +8,6 @@ use GuzzleHttp\Cookie\SetCookie;
 use GuzzleHttp\Promise\FulfilledPromise;
 use GuzzleHttp\Promise\PromiseInterface;
 use GuzzleHttp\Promise\RejectedPromise;
-use GuzzleHttp\Psr7\LazyOpenStream;
 use GuzzleHttp\Psr7\MimeType;
 use GuzzleHttp\Psr7\Response;
 use GuzzleHttp\Psr7\Utils;
@@ -27,6 +26,7 @@ use Skynet\Types\GetMetadataResponse;
 use Skynet\Types\PinResponse;
 use Skynet\Types\ResolveHnsResponse;
 use Skynet\Types\UploadRequestResponse;
+use TusPhp\Exception\FileException;
 use function Skynet\functions\formatting\formatSkylink;
 use function Skynet\functions\options\makeDownloadOptions;
 use function Skynet\functions\options\makeGetEntryOptions;
@@ -239,6 +239,16 @@ class Skynet {
 	 * @return mixed
 	 */
 	public function downloadFile( string $skylinkUrl, ?CustomDownloadOptions $options = null, ?Request $reqOptions = null ): Response {
+		return $this->downloadFileAsync( $skylinkUrl, $options, $reqOptions )->wait();
+	}
+
+	/**
+	 * @param string                              $skylinkUrl
+	 * @param \Skynet\Options\CustomClientOptions $options
+	 *
+	 * @return mixed
+	 */
+	public function downloadFileAsync( string $skylinkUrl, ?CustomDownloadOptions $options = null, ?Request $reqOptions = null ): PromiseInterface {
 
 		$options    = $this->buildDownloadOptions( $options, [ 'download' => true ] );
 		$reqOptions = $this->buildRequestOptions( $reqOptions ? $reqOptions->toArray() : null,
@@ -806,6 +816,7 @@ class Skynet {
 
 		if ( $file->getFileSize() < $options->getLargeFileSize() ) {
 			return $this->uploadSmallFile( $file, $options );
+
 		}
 
 		return $this->uploadLargeFile( $file, $options );
@@ -1030,24 +1041,6 @@ class Skynet {
 
 		return new UploadRequestResponse( [ 'skylink' => $skylink ] );
 	}
-
-	/*
-		private function validateUploadResponse( Response $response ) {
-			$response->getBody()->rewind();
-			$body = $response->getBody()->getContents();
-			$body = json_decode( $body );
-			try {
-				if ( ! $body ) {
-					throw new Exception( 'response->body field missing' );
-				}
-
-				validateString( "skylink", $body->data->skylink ?? null, "upload response field" );
-			} catch ( Exception $e ) {
-				throw new Exception(
-					sprintf( 'Did not get a complete upload response despite a successful request. Please try again and report this issue to the devs if it persists. %s', $e->getMessage() )
-				);
-			}
-		}*/
 
 	/**
 	 * @param array                                    $files
