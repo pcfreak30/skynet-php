@@ -1199,7 +1199,13 @@ class Skynet {
 		] );
 		$json     = json_decode( $response->getBody()->getContents() );
 
-		return $json->authenticated;
+		if ( empty( $json ) ) {
+			$json = new \stdClass();
+		}
+
+		$json->authenticated = $json->authenticated ?? false;
+
+		return (bool) $json->authenticated;
 	}
 
 	/**
