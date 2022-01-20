@@ -39,7 +39,8 @@ function validateLargeUploadResponse( Response $response ) {
 		if ( ! $response->getHeaders() || empty( $response->getHeaders() ) ) {
 			throw new Exception( 'response->headers field missing' );
 		}
-		validateString( 'response->headers["skynet-skylink"]', $response->getHeaderLine( 'skynet-skylink' ) ?? null, "upload response field" );
+		$header = $response->getHeaderLine( 'skynet-skylink' );
+		validateString( 'response->headers["skynet-skylink"]', ! empty( $header ) ? $header : null, "upload response field" );
 	} catch ( Exception $e ) {
 		throw new Exception(
 			sprintf( 'Did not get a complete upload response despite a successful request. Please try again and report this issue to the devs if it persists. %s', $e->getMessage() )
