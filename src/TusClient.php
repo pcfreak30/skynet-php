@@ -3,12 +3,15 @@
 namespace Skynet;
 
 use Carbon\Carbon;
+use GuzzleHttp\Client as GuzzleClient;
+use GuzzleHttp\Exception\BadResponseException;
 use GuzzleHttp\Exception\ClientException;
 use GuzzleHttp\Exception\ConnectException;
 use GuzzleHttp\Exception\GuzzleException;
-use GuzzleHttp\Promise\FulfilledPromise;
+use GuzzleHttp\Promise\Create;
 use GuzzleHttp\Promise\PromiseInterface;
 use GuzzleHttp\Psr7\Response;
+use Psr\Http\Message\StreamInterface;
 use Symfony\Component\HttpFoundation\Response as HttpResponse;
 use TusPhp\Exception\ConnectionException;
 use TusPhp\Exception\FileException;
@@ -16,29 +19,46 @@ use TusPhp\Exception\TusException;
 use TusPhp\Tus\Client;
 
 class TusClient extends Client {
-	public function uploadAsync( int $bytes = - 1 ): PromiseInterface {
+	private StreamInterface $stream;
+
+	public function __construct( GuzzleClient $client, string $apiEndpoint, array $options = [] ) {
+		parent::__construct( '', $options );
+		$this->headers += [ 'Tus-Resumable' => self::TUS_PROTOCOL_VERSION ];
+		$this->client  = $client;
+		$this->setApiPath( $apiEndpoint );
+	}
+
+	public function uploadAsync( int $bytes = - 1, $offset = 0, bool $init = false ): PromiseInterface {
 		$bytes   = $bytes < 0 ? $this->getFileSize() : $bytes;
-		$offset  = $this->partialOffset < 0 ? 0 : $this->partialOffset;
-		$promise = new FulfilledPromise( null );
-		try {
-			// Check if this upload exists with HEAD request.
-			$offset = $this->sendHeadRequestAsync();
-		} catch ( FileException|ClientException $e ) {
-			// Create a new upload.
-			$promise = $this->createAsync( $this->getKey() )->then( function ( string $location ) {
-				$this->url = $location;
-			} );
-		} catch ( ConnectException $e ) {
-			throw new ConnectionException( "Couldn't connect to server." );
+		$promise = Create::promiseFor( null );
+
+		if ( $init ) {
+			$promise = $promise->then( fn() => $this->sendHeadRequestAsync() );
 		}
 
-		// Verify that upload is not yet expired.
-		if ( $this->isExpired() ) {
-			throw new TusException( 'Upload expired.' );
-		}
+		return $promise->otherwise( function ( $e ) {
+			if ( $e instanceof FileException || $e instanceof ClientException ) {
+				// Create a new upload.
+				return $this->createAsync( $this->getKey() )->then( function ( string $location ) {
+					$this->url = $location;
+				} );
+			}
+			if ( $e instanceof ConnectException ) {
+				throw new ConnectionException( "Couldn't connect to server." );
+			}
 
-		// Now, resume upload with PATCH request.
-		return $promise->then( fn() => $this->sendPatchRequestAsync( $bytes, $offset ) );
+			if ( $e instanceof \Exception ) {
+				throw $e;
+			}
+
+			return Create::promiseFor( null );
+		} )->then( function ( ?int $newOffset ) use ( &$offset, &$bytes ) {
+			if ( $this->isExpired() ) {
+				throw new TusException( 'Upload expired.' );
+			}
+
+			return $this->sendPatchRequestAsync( $bytes, $newOffset ?? $offset );
+		} );
 	}
 
 	protected function sendHeadRequestAsync(): PromiseInterface {
@@ -136,13 +156,20 @@ class TusClient extends Client {
 				'location' => $uploadLocation,
 				'offset'   => $uploadOffset,
 			];
-		} )->reject( function ( ClientException $e ) {
+		} )->otherwise( function ( ClientException $e ) {
 			$statusCode = $e->getResponse()->getStatusCode();
 
 			if ( HttpResponse::HTTP_CREATED !== $statusCode ) {
 				throw new FileException( 'Unable to create resource.' );
 			}
 		} );
+	}
+
+	protected function getData( int $offset, int $bytes ): string {
+		$stream = $this->stream;
+		$stream->seek( $offset );
+
+		return $stream->read( $bytes );
 	}
 
 	protected function sendPatchRequestAsync( int $bytes, int $offset ): PromiseInterface {
@@ -159,22 +186,76 @@ class TusClient extends Client {
 			$headers += [ 'Upload-Offset' => $offset ];
 		}
 
-		try {
-			$promise = $this->getClient()->patchAsync( $this->getUrl(), [
-				'body'    => $data,
-				'headers' => $headers,
-			] );
+		return $this->getClient()->patchAsync( $this->getUrl(), [
+			'body'    => $data,
+			'headers' => $headers,
+		] )->then( function ( Response $response ) {
+			return (int) current( $response->getHeader( 'upload-offset' ) );
+		} )->otherwise( function ( $e ) {
+			throw $this->handleException( $e );
+		} );
 
-			return $promise->then( function ( Response $response ) {
-				return (int) current( $response->getHeader( 'upload-offset' ) );
-			} )->reject( function ( $e ) {
-				throw $this->handleClientException( $e );
-			} );
-		} catch ( ClientException $e ) {
-			throw $this->handleClientException( $e );
-		} catch ( ConnectException $e ) {
-			throw new ConnectionException( "Couldn't connect to server." );
-		}
 	}
 
+	protected function handleException( BadResponseException $e ) {
+		$response   = $e->getResponse();
+		$statusCode = $response !== null ? $response->getStatusCode() : HttpResponse::HTTP_INTERNAL_SERVER_ERROR;
+
+		if ( HttpResponse::HTTP_REQUESTED_RANGE_NOT_SATISFIABLE === $statusCode ) {
+			return new FileException( 'The uploaded file is corrupt.' );
+		}
+
+		if ( HttpResponse::HTTP_CONTINUE === $statusCode ) {
+			return new ConnectionException( 'Connection aborted by user.' );
+		}
+
+		if ( HttpResponse::HTTP_UNSUPPORTED_MEDIA_TYPE === $statusCode ) {
+			return new TusException( 'Unsupported media types.' );
+		}
+
+		return new TusException( $response->getBody(), $statusCode );
+	}
+
+	/**
+	 * Set file properties.
+	 *
+	 * @param string $file File path.
+	 * @param string $name File name.
+	 *
+	 * @return Client
+	 */
+	public function stream( StreamInterface $stream, string $name ): self {
+		$this->stream = $stream;
+
+		$this->fileName = $name;
+		$this->fileSize = $stream->getSize();
+
+		$this->addMetadata( 'filename', $this->fileName );
+
+		return $this;
+	}
+
+	/**
+	 * Get checksum.
+	 *
+	 * @return string
+	 */
+	public function getChecksum(): string {
+		if ( empty( $this->checksum ) ) {
+			$this->setChecksum( \GuzzleHttp\Psr7\Utils::hash( $this->getStream(), $this->getChecksumAlgorithm() ) );
+		}
+
+		return $this->checksum;
+	}
+
+	/**
+	 * @return \Psr\Http\Message\StreamInterface
+	 */
+	public function getStream(): StreamInterface {
+		if ( ! ( $this->stream ?? null ) ) {
+			throw new \Exception( 'stream has not been set.' );
+		}
+
+		return $this->stream;
+	}
 }

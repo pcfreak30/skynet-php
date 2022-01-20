@@ -957,34 +957,26 @@ class Skynet {
 			$requestOpts['auth'] = [ '', $options->getApiKey(), 'basic' ];
 		}
 
-		$client = new TusClient( trailingslashit( dirname( $url ) ), array_merge( [
+		$client = new TusClient( $this->getHttpClient(), $url, array_merge( [
 			'headers' => $headers,
 		], $requestOpts ) );
 
-		$client->setApiPath( basename( $url ) );
-
 		if ( $file->getStream() ) {
-			$temp   = tempnam( sys_get_temp_dir(), 'skynet' );
-			$buffer = new LazyOpenStream( $temp, 'wb' );
-			Utils::copyToStream( $file->getStream(), $buffer );
-			$buffer->close();
-			$file->setStream( null );
+			$buffer = $file->getStream();
 		}
 
 		if ( $file->getData() ) {
-			$temp = tempnam( sys_get_temp_dir(), 'skynet' );
-			file_put_contents( $temp, $file->getData()->toString() );
+			$buffer = Utils::streamFor( $file->getData()->toString() );
 		}
 
-		if ( isset( $temp ) ) {
-			$file->setFileName( $temp );
-		}
+		//	$buffer = new CachingStream( $buffer );
 
 		$client
 			->setKey( generate_uuid4() )
-			->file( trailingslashit( $file->getFilePath() ) . $file->getFileName(), $filename );
+			->stream( $buffer, $filename );
 
 		$size = $file->getFileSize();
+		$file->setStream( null );
 
 
 		$list = [];
@@ -992,7 +984,7 @@ class Skynet {
 
 		$queue = null;
 
-		$queue = function () use ( $queue, $size, $pos, $client, &$list ) {
+		$queue = function ( bool $init = false ) use ( &$queue, $size, &$pos, $client, &$list ) {
 			if ( $pos >= $size ) {
 				return new FulfilledPromise( null );
 			}
@@ -1002,21 +994,38 @@ class Skynet {
 			} );
 
 			while ( count( $list ) < TUS_PARALLEL_UPLOADS && $pos < $size ) {
-				$list[] = $client->uploadAsync( TUS_CHUNK_SIZE )->then( function ( int $bytes ) use ( &$pos ) {
+				$list[] = $client->uploadAsync( TUS_CHUNK_SIZE, $pos, $init )->then( function ( $bytes ) use ( &$pos ) {
 					if ( $bytes >= $pos ) {
 						$pos = $bytes;
 					}
 				} );
+
+				$pos += TUS_CHUNK_SIZE;
+				if ( $init ) {
+					break;
+				}
 			}
 
-			return \GuzzleHttp\Promise\Utils::any( $list )->then( $queue );
+			return \GuzzleHttp\Promise\Utils::settle( $list )->otherwise( function ( $e ) {
+				if ( $e instanceof Exception ) {
+					throw  $e;
+				}
+
+				return $e;
+			} )->then( function ( $results ) use ( &$queue ) {
+				foreach ( $results as $result ) {
+					if ( $result['state'] === PromiseInterface::REJECTED ) {
+						if ( is_object( $result['reason'] ) && get_class( $result['reason'] ) === Exception::class || $result['reason'] instanceof FileException ) {
+							throw $result['reason'];
+						}
+					}
+				}
+
+				return $queue();
+			} );
 		};
 
-		return $queue()->then( function () use ( $client, $temp ) {
-			if ( isset( $temp ) ) {
-				@unlink( $temp );
-			}
-
+		return $queue( true )->then( function () use ( $client ) {
 			return $client->getClient()->headAsync( $client->getUrl(), [
 				'headers' => [ 'Tus-Resumable' => TusClient::TUS_PROTOCOL_VERSION ],
 			] );
