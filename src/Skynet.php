@@ -200,7 +200,7 @@ class Skynet {
 	/**
 	 * @param string $customPortalUrl
 	 */
-	public function setPortal( string $portalUrl ): void {
+	public function setPortal( string $portalUrl ): self {
 		$this->customPortalUrl = $portalUrl;
 		return $this;
 	}
@@ -1137,10 +1137,11 @@ class Skynet {
 	 * @return void
 	 * @throws \Exception
 	 */
-	public function setPortalLogin( string $email, string $password ) {
+	public function setPortalLogin( string $email, string $password ):self {
 		$this->portalLoginEmail    = $email;
 		$this->portalLoginPassword = $password;
 		$this->refreshPortalSession();
+		return $this;
 	}
 
 	/**
