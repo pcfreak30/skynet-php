@@ -992,7 +992,7 @@ class Skynet {
 				return $item->getState() === PromiseInterface::PENDING;
 			} );
 
-			while ( count( $list ) < TUS_PARALLEL_UPLOADS && $pos < $size ) {
+			while ( count( $list ) < 1 && $pos < $size ) {
 				$list[] = $client->uploadAsync( TUS_CHUNK_SIZE, $pos, $init )->then( function ( $bytes ) use ( &$pos ) {
 					if ( $bytes >= $pos ) {
 						$pos = $bytes;
