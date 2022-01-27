@@ -166,7 +166,7 @@ class Skynet {
 	/**
 	 * @var string
 	 */
-	private string $portalAccountUrl = 'https://account.siasky.net';
+	private string $portalAccountUrl = 'https://account.skynetpro.net';
 	/**
 	 * @var string
 	 */
@@ -182,7 +182,7 @@ class Skynet {
 	 */
 	public function __construct( $initialPortalUrl = null, ?CustomClientOptions $options = null ) {
 		if ( null === $initialPortalUrl ) {
-			$initialPortalUrl = 'https://siasky.net';
+			$initialPortalUrl = 'https://skynetpro.net';
 		} else {
 			$this->customPortalUrl = $initialPortalUrl;
 		}
@@ -202,6 +202,7 @@ class Skynet {
 	 */
 	public function setPortal( string $portalUrl ): void {
 		$this->customPortalUrl = $portalUrl;
+		return $this;
 	}
 
 	/**
@@ -1150,46 +1151,20 @@ class Skynet {
 		if ( $this->verifyPortalSession() ) {
 			return;
 		}
-		$response = $this->getHttpClient()->get( $this->portalAccountUrl . '/.ory/kratos/public/self-service/login/browser', [ 'allow_redirects' => false ] );
 
-		$cookies = new CookieJar(
-			false, [
-			SetCookie::fromString( $response->getHeaderLine( 'Set-Cookie' )
-			),
-		] );
-
-		$response = $this->getHttpClient()->get( $response->getHeaderLine( 'Location' ), [
-			'cookies' => $cookies,
-		] );
-
-
-		libxml_use_internal_errors( true );
-		$doc = new \DOMDocument();
-		$doc->loadHTML( $response->getBody()->getContents() );
-
-		$xpath = new \DOMXPath( $doc );
-		/** @var \DOMElement $form */
-		$form      = $doc->getElementsByTagName( 'form' )->item( 0 );
-		$csrf      = $xpath->query( "//input[@name='csrf_token']" )->item( 0 )->getAttribute( 'value' );
-		$submitUrl = $form->getAttribute( 'action' );
-
-		$response = $this->getHttpClient()->post( $submitUrl, [
-			'form_params' => [
-				'identifier' => $this->portalLoginEmail,
-				'password'   => $this->portalLoginPassword,
-				'csrf_token' => $csrf,
+		$response = $this->getHttpClient()->post( $this->portalAccountUrl . '/api/login', [
+			'json' => [
+				'email'    => $this->portalLoginEmail,
+				'password' => $this->portalLoginPassword,
 			],
-			'cookies'     => $cookies,
 		] );
-		$html     = $response->getBody()->getContents();
 
-		if ( false !== stripos( $html, 'the provided credentials are invalid' ) ) {
+		if ( 204 !== $response->getStatusCode() ) {
 			throw new Exception( 'Invalid portal account login' );
 		}
 
-		libxml_use_internal_errors( false );
+		$this->sessionKey = $response->getHeaderLine( 'Skynet-Token' );
 
-		$this->sessionKey = $cookies->getCookieByName( 'skynet-jwt' )->getValue();
 		if ( ! $this->verifyPortalSession() ) {
 			throw new Exception( 'There was a problem authenticating with the portal.' );
 		}
@@ -1200,7 +1175,7 @@ class Skynet {
 	 * @throws \GuzzleHttp\Exception\GuzzleException
 	 */
 	public function verifyPortalSession(): bool {
-		$response = $this->getHttpClient()->get( $this->getPortalUrl() . '/__internal/do/not/use/authenticated', [
+		$response = $this->getHttpClient()->get( $this->getPortalUrl() . '/__internal/do/not/use/accounts', [
 			'cookies' => CookieJar::fromArray( [
 				'skynet-jwt' => $this->sessionKey,
 			], parse_url( $this->getPortalUrl(), PHP_URL_HOST )
