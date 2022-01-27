@@ -970,8 +970,6 @@ class Skynet {
 			$buffer = Utils::streamFor( $file->getData()->toString() );
 		}
 
-		//	$buffer = new CachingStream( $buffer );
-
 		$client
 			->setKey( generate_uuid4() )
 			->stream( $buffer, $filename );
@@ -1127,7 +1125,7 @@ class Skynet {
 			'options'      => $requestOpts,
 			'endpointPath' => $options->getEndpointUpload(),
 			'method'       => 'POST',
-		] ) );
+		] ) )->wait();
 	}
 
 	/**
