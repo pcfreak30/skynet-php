@@ -1150,19 +1150,21 @@ class Skynet {
 		if ( $this->verifyPortalSession() ) {
 			return;
 		}
+		$cookies = new CookieJar();
 
 		$response = $this->getHttpClient()->post( $this->portalAccountUrl . '/api/login', [
 			'json' => [
 				'email'    => $this->portalLoginEmail,
 				'password' => $this->portalLoginPassword,
 			],
+			'cookies' => $cookies,
 		] );
 
 		if ( 204 !== $response->getStatusCode() ) {
 			throw new Exception( 'Invalid portal account login' );
 		}
 
-		$this->sessionKey = $response->getHeaderLine( 'Skynet-Token' );
+		$this->sessionKey =  $cookies->getCookieByName( 'skynet-jwt' )->getValue();
 
 		if ( ! $this->verifyPortalSession() ) {
 			throw new Exception( 'There was a problem authenticating with the portal.' );
