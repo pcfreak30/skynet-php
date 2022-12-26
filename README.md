@@ -1,3 +1,12 @@
+## Update as of December 2022
+The Skynet ecosystem has gone though a lot of drama much like many other web3 ecosystems have. At this time what I will refer to as Skynet v1 is dead long term. The tech can be used as a reference for future innovation, but it will no longer work in its current state by the end of 2023.
+
+Based on this, the engineering paths being taken for this library and the related filesystem and nextcloud will be revisted in the future based on the new directions the Sia community takes. Do what you wish with this code, it is MIT after all, but I would not waste further time on using it for anything real.
+
+I encourage you to drop into discord at https://lumeweb.com if you want to see where web3 is heading!
+
+Kudos!
+
 ## Skynet PHP SDK
 This SDK is a community-created, unofficial SDK in PHP for the Skynet Decentralized Internet Network. It is taken as primarily a port from https://github.com/SkynetLabs/skynet-js.
 
